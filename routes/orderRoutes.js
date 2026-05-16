@@ -115,4 +115,23 @@ router.get('/', protect, admin, async (req, res) => {
   res.json(orders);
 });
 
+// DELETE order -- admin only
+router.delete('/:id', protect, admin, async (req, res) => {
+  const order = await Order.findById(req.params.id)
+  
+  if (order) {
+    await order.deleteOne()
+    res.json({ message: 'Order removed' })
+  } else {
+    res.status(404).json({ message: 'Order not found' })
+  }
+
+//   if (order && order.isDelivered) {
+//   await order.deleteOne()
+//   res.json({ message: 'Delivered order removed' })
+// } else {
+//   res.status(400).json({ message: 'Only delivered orders can be deleted' })
+// }
+})
+
 module.exports = router;
