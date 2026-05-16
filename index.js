@@ -18,7 +18,7 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: [process.env.CLIENT_URL, 'http://localhost:5173'] // Vercel URL + local
+  origin: ['https://phone-shop-front-end-woad.vercel.app', 'http://localhost:5173'] // Vercel URL + local
 }));
 
 app.use(express.json()); // Body parser
