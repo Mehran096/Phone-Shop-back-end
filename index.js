@@ -4,6 +4,9 @@ const cors = require('cors');
 const connectDB = require('./config/db'); // we’ll make this
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const cookieParser = require('cookie-parser');
+const jazzcashRoutes = require('./routes/jazzcashRoutes.js');
+//import jazzcashRoutes from './routes/jazzcashRoutes.js'
+
 //const { protect } = require('./middleware/auth.js');
 
 const userRoutes = require('./routes/userRoutes');
@@ -23,6 +26,7 @@ app.use(cors({
 
 app.use(express.json()); // Body parser
 app.use(express.urlencoded({ extended: true }))
+app.use('/api/jazzcash', jazzcashRoutes)
 
 // Routes
 app.get('/', (req, res) => {
