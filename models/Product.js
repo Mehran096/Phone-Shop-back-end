@@ -13,6 +13,7 @@ const productSchema = mongoose.Schema({
   brand: { type: String, required: true }, // Apple, Samsung, Google
   image: { type: String}, // main image URL
   images: { type: [String], default: [] }, // gallery
+  imagePublicIds: { type: [String], default: [] },
   description: { type: String, required: true },
   specs: {
     storage: { type: String }, // 256GB
