@@ -65,39 +65,38 @@ const getProductById = asyncHandler(async (req, res) => {
 // @desc Update product
 // @route PUT /api/products/:id
 // @access Private/Admin
-const updateProduct = asyncHandler(async (req, res) => {
-  const { name, price, brand, category, countInStock, description } = req.body
+const updateProduct = async (req, res) => {
   const product = await Product.findById(req.params.id)
+  if (!product) throw new Error('Product not found')
 
-  if (product) {
-    product.name = name || product.name
-    product.price = price || product.price
-    product.brand = brand || product.brand
-    product.category = category || product.category
-    product.countInStock = countInStock || product.countInStock
-    product.description = description || product.description
+  const existingImages = JSON.parse(req.body.existingImages || '[]')
 
-    if (req.files && req.files.length > 0) {
-      // Delete old images from Cloudinary
-      if (product.imagePublicIds && product.imagePublicIds.length > 0) {
-        await cloudinary.api.delete_resources(product.imagePublicIds)
-      }
-
-      const newImages = req.files.map(file => file.path)
-      const newPublicIds = req.files.map(file => file.filename)
-
-      product.image = newImages[0]
-      product.images = newImages
-      product.imagePublicIds = newPublicIds
-    }
-
-    const updatedProduct = await product.save()
-    res.json(updatedProduct)
-  } else {
-    res.status(404)
-    throw new Error('Product not found')
+  // Delete images removed by user
+  const imagesToDelete = product.imagePublicIds.filter(
+    (id, idx) =>!existingImages.includes(product.images[idx])
+  )
+  if (imagesToDelete.length > 0) {
+    await cloudinary.api.delete_resources(imagesToDelete)
   }
-})
+
+  // Upload new images
+  const newImages = req.files.map(file => file.path)
+  const newPublicIds = req.files.map(file => file.filename)
+
+  product.name = req.body.name
+  product.price = req.body.price
+  product.description = req.body.description
+  product.countInStock = req.body.countInStock
+  product.images = [...existingImages,...newImages]
+  product.imagePublicIds = [...existingImages.map(img => {
+    // Find matching publicId for kept images
+    const idx = product.images.indexOf(img)
+    return product.imagePublicIds[idx]
+  }).filter(Boolean),...newPublicIds]
+
+  const updatedProduct = await product.save()
+  res.json(updatedProduct)
+}
 
 // @desc Delete product
 // @route DELETE /api/products/:id
@@ -119,10 +118,67 @@ const deleteProduct = asyncHandler(async (req, res) => {
   }
 })
 
+//create reviews
+const createProductReview = async (req, res) => {
+  const { rating, comment } = req.body
+  const product = await Product.findById(req.params.id)
+
+  if (!product) {
+    res.status(404)
+    throw new Error('Product not found')
+  }
+
+  const existingReview = product.reviews.find(
+    r => r.user.toString() === req.user._id.toString()
+  )
+
+  if (existingReview) {
+    // Update existing review
+    existingReview.rating = Number(rating)
+    existingReview.comment = comment
+    existingReview.updatedAt = Date.now()
+  } else {
+    // Create new review
+    const review = {
+      name: req.user.name,
+      rating: Number(rating),
+      comment,
+      user: req.user._id,
+    }
+    product.reviews.push(review)
+  }
+
+  product.numReviews = product.reviews.length
+  product.rating = product.reviews.reduce((acc, item) => item.rating + acc, 0) / product.reviews.length
+
+  await product.save()
+  res.status(200).json({ message: existingReview ? 'Review updated' : 'Review added' })
+} 
+
+// @desc    Update product specs
+// @route   PUT /api/products/:id/specs
+// @access  Private/Admin
+const updateProductSpecs = async (req, res) => {
+  const product = await Product.findById(req.params.id)
+
+  if (product) {
+    product.specs = {
+      ...product.specs.toObject(),
+      ...req.body.specs,
+    }
+    const updatedProduct = await product.save()
+    res.json(updatedProduct)
+  } else {
+    res.status(404).json({ message: 'Product not found' })
+  }
+}
+
 module.exports = {
   createProduct,
   getProducts,
   getProductById,
   updateProduct,
   deleteProduct,
+  createProductReview,
+  updateProductSpecs
 }

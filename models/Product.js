@@ -11,6 +11,7 @@ const productSchema = mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // admin who added it
   name: { type: String, required: true }, // iPhone 15 Pro
   brand: { type: String, required: true }, // Apple, Samsung, Google
+  category: { type: String}, // ADD THIS
   image: { type: String}, // main image URL
   images: { type: [String], default: [] }, // gallery
   imagePublicIds: { type: [String], default: [] },

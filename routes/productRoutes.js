@@ -8,6 +8,8 @@ const {
   getProductById,
   updateProduct,
   deleteProduct,
+  createProductReview,
+  updateProductSpecs
 } = require('../controllers/productController.js')
  
 //console.log( createProduct)
@@ -59,9 +61,31 @@ router.get('/:id', async (req, res) => {
   else res.status(404).json({ message: 'Phone not found' });
 });
 
- // Admin
 
+//reviews
+router.route('/:id/reviews').post(protect, createProductReview)
+
+
+
+ // Admin
+ //const upload = multer({ dest: 'uploads/' })
+router.route('/').post(
+  protect, 
+  admin, 
+  (req, res, next) => {
+    upload.array('images', 6)(req, res, (err) => {
+      if (err) {
+        console.error('MULTER UPLOAD ERROR:', err)
+        return res.status(400).json({ message: err.message })
+      }
+      next()
+    })
+  }, 
+  createProduct
+) 
 router.route('/:id').put(protect, admin, upload.array('images', 6), updateProduct)
 router.route('/:id').delete(protect, admin, deleteProduct) 
+//specs
+router.route('/:id/specs').put(protect, admin, updateProductSpecs)
 
 module.exports = router;
