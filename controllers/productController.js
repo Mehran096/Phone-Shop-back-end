@@ -43,9 +43,28 @@ const createProduct = asyncHandler(async (req, res) => {
 // @desc Get all products
 // @route GET /api/products
 // @access Public
-const getProducts = asyncHandler(async (req, res) => {
-  const products = await Product.find({})
-  res.json(products)
+//pagination
+ const getProducts = asyncHandler(async (req, res) => {
+  const pageSize = 6
+  const page = Number(req.query.pageNumber) || 1
+
+  const keyword = req.query.keyword
+    ? {
+        $or: [
+          { name: { $regex: req.query.keyword, $options: 'i' } },
+          { brand: { $regex: req.query.keyword, $options: 'i' } },
+          { category: { $regex: req.query.keyword, $options: 'i'} }
+        ]
+      }
+    : {}
+
+  const count = await Product.countDocuments({ ...keyword })
+  const products = await Product.find({ ...keyword })
+    .limit(pageSize)
+    .skip(pageSize * (page - 1))
+    .sort({ createdAt: -1 })
+
+  res.json({ products, page, pages: Math.ceil(count / pageSize) })
 })
 
 // @desc Get product by ID
@@ -172,6 +191,8 @@ const updateProductSpecs = async (req, res) => {
     res.status(404).json({ message: 'Product not found' })
   }
 }
+
+
 
 module.exports = {
   createProduct,

@@ -43,23 +43,9 @@ router.route('/').post(
 
 
 // GET /api/products - Public - Get all phones with filters
-router.get('/', async (req, res) => {
-  const { keyword, brand } = req.query;
-  const query = {};
-  
-  if (keyword) query.name = { $regex: keyword, $options: 'i' };
-  if (brand) query.brand = brand;
-
-  const products = await Product.find(query);
-  res.json(products);
-});
-
-// GET /api/products/:id - Public - Single phone
-router.get('/:id', async (req, res) => {
-  const product = await Product.findById(req.params.id);
-  if (product) res.json(product);
-  else res.status(404).json({ message: 'Phone not found' });
-});
+router.route('/').get(getProducts)
+//single product
+router.route('/:id').get(getProductById)
 
 
 //reviews
