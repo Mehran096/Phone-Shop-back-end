@@ -43,7 +43,7 @@ const createProduct = asyncHandler(async (req, res) => {
 // @desc Get all products
 // @route GET /api/products
 // @access Public
-//pagination
+//pagination and search
  const getProducts = asyncHandler(async (req, res) => {
   const pageSize = 6
   const page = Number(req.query.pageNumber) || 1
