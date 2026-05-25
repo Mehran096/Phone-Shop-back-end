@@ -32,28 +32,31 @@ app.post('/api/orders/webhook', express.raw({type: 'application/json'}), async (
 
   // Respond immediately so Stripe doesn't timeout
   res.status(200).send('ok');
-  
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const orderId = session.metadata.orderId;
 
-    await Order.findByIdAndUpdate(orderId, {
-      isPaid: true,
-      paidAt: Date.now(),
-      paymentResult: {
-        id: session.payment_intent,
-        status: session.payment_status,
-        update_time: new Date().toISOString(),
-        email_address: session.customer_email,
-      },
-      itemsPrice: (session.amount_subtotal || 0) / 100,
-  taxPrice: (session.total_details?.amount_tax || 0) / 100,
-  shippingPrice: (session.total_details?.amount_shipping || 0) / 100,
-  totalPrice: (session.amount_total || 0) / 100,
-    });
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const orderId = session.metadata.orderId;
+
+      await Order.findByIdAndUpdate(orderId, {
+        isPaid: true,
+        paidAt: Date.now(),
+        paymentResult: {
+          id: session.payment_intent,
+          status: session.payment_status,
+          update_time: new Date().toISOString(),
+          email_address: session.customer_email,
+        },
+        itemsPrice: (session.amount_subtotal || 0) / 100,
+        taxPrice: (session.total_details?.amount_tax || 0) / 100,
+        shippingPrice: (session.total_details?.amount_shipping || 0) / 100,
+        totalPrice: (session.amount_total || 0) / 100,
+      });
+    }
+  } catch (err) {
+    console.error('Webhook DB update failed:', err);
+    // Don't send res here - Stripe already got 200
   }
-
-  res.json({ received: true });
 });
 
 // Middleware
