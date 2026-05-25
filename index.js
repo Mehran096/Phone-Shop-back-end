@@ -30,6 +30,9 @@ app.post('/api/orders/webhook', express.raw({type: 'application/json'}), async (
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  // Respond immediately so Stripe doesn't timeout
+  res.status(200).send('ok');
+  
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const orderId = session.metadata.orderId;
