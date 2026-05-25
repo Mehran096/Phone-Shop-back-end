@@ -89,18 +89,42 @@ app.use((err, req, res, next) => {
   }
   next(err)
 })
-// Catch multer + cloudinary errors
+
+//multer error
 app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+  
   console.error('UPLOAD ERROR:', err)
   if (err) {
     return res.status(400).json({ message: err.message })
   }
   next(err)
 })
+
+
 app.use((err, req, res, next) => {
-  console.error('ERROR STACK:', err.stack)  // <-- this line is critical
-  res.status(500).json({ message: err.message })
+  if (res.headersSent) {
+    return next(err); // skip if response already sent
+  }
+  
+  console.error('ERROR STACK:', err.stack)
+  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  res.status(statusCode).json({ message: err.message })
 })
+// Catch multer + cloudinary errors
+// app.use((err, req, res, next) => {
+//   console.error('UPLOAD ERROR:', err)
+//   if (err) {
+//     return res.status(400).json({ message: err.message })
+//   }
+//   next(err)
+// })
+// app.use((err, req, res, next) => {
+//   console.error('ERROR STACK:', err.stack)  // <-- this line is critical
+//   res.status(500).json({ message: err.message })
+// })
 
  
 
