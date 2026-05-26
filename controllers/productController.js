@@ -45,7 +45,8 @@ const createProduct = asyncHandler(async (req, res) => {
 // @access Public
 //pagination and search
  const getProducts = asyncHandler(async (req, res) => {
-  const pageSize = 6
+  const pageSize = 8
+  //const pageSize = req.query.pageNumber == 1 ? 8 : 6
   const page = Number(req.query.pageNumber) || 1
 
   const keyword = req.query.keyword
@@ -107,11 +108,23 @@ const updateProduct = async (req, res) => {
   product.description = req.body.description
   product.countInStock = req.body.countInStock
   product.images = [...existingImages,...newImages]
-  product.imagePublicIds = [...existingImages.map(img => {
-    // Find matching publicId for kept images
-    const idx = product.images.indexOf(img)
-    return product.imagePublicIds[idx]
-  }).filter(Boolean),...newPublicIds]
+
+  // product.imagePublicIds = [...existingImages.map(img => {
+  //   // Find matching publicId for kept images
+  //   const idx = product.images.indexOf(img)
+  //   return product.imagePublicIds[idx]
+  // }).filter(Boolean),...newPublicIds]
+  product.imagePublicIds = existingImages.map(img => {
+  const idx = product.images.indexOf(img)
+  return idx!== -1? product.imagePublicIds[idx] : null
+}).filter(Boolean)
+
+ 
+product.imagePublicIds = [...product.imagePublicIds,...newPublicIds]
+
+product.image = product.images[0] || "" // Set main image to first image in array
+product.imagePublicId = product.imagePublicIds[0] || "" // Keep publicId in sync
+
 
   const updatedProduct = await product.save()
   res.json(updatedProduct)
