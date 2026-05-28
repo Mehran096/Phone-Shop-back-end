@@ -11,6 +11,7 @@ const userRoutes = require('./routes/userRoutes');
 const productRoutes = require('./routes/productRoutes');
 const { cloudinary } = require('./utils/cloudinary') 
 const orderRoutes = require('./routes/orderRoutes'); 
+const contactRoutes = require('./routes/contactRoutes.js');
 const Stripe = require('stripe');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
   const Order = require('./models/orderModel.js');
@@ -78,6 +79,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 
 app.use('/api/orders', orderRoutes);
+app.use('/api/contact', contactRoutes)
 
 // Error handling middleware - must be last
 app.use(notFound);
