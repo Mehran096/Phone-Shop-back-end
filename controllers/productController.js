@@ -105,6 +105,7 @@ const updateProduct = async (req, res) => {
 
   product.name = req.body.name
   product.price = req.body.price
+  product.brand = req.body.brand
   product.description = req.body.description
   product.countInStock = req.body.countInStock
   product.images = [...existingImages,...newImages]
