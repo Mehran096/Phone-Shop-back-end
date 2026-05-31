@@ -178,13 +178,31 @@ router.put('/profile', protect, asyncHandler(async (req, res) => {
   }
 }))
 
-// @desc Get all users
-// @route GET /api/users
-// @access Private/Admin
-router.get('/', protect, admin, async (req, res) => {
-  const users = await User.find({}).select('-password');
-  res.json(users);
-});
+// @desc    Get all users
+// @route   GET /api/users
+// @access  Private/Admin
+router.get('/', protect, admin, asyncHandler(async (req, res) => {
+  const pageSize = 10
+  const page = Number(req.query.pageNumber) || 1
+
+  const keyword = req.query.keyword
+    ? {
+        $or: [
+          { name: { $regex: req.query.keyword, $options: 'i' } },
+          { email: { $regex: req.query.keyword, $options: 'i' } },
+        ],
+      }
+    : {}
+
+  const count = await User.countDocuments({ ...keyword })
+  const users = await User.find({ ...keyword })
+    .select('-password')
+    .limit(pageSize)
+    .skip(pageSize * (page - 1))
+    .sort({ createdAt: -1 })
+
+  res.json({ users, page, pages: Math.ceil(count / pageSize) })
+}))
 // @desc Get user by ID
 // @route GET /api/users/:id
 // @access Private/Admin
@@ -241,4 +259,29 @@ router.delete('/:id', protect, admin, asyncHandler(async (req, res) => {
     throw new Error('User not found')
   }
 }))
+
+router.put('/:id/toggleAdmin', protect, admin, async (req, res) => {
+  const user = await User.findById(req.params.id)
+  
+  if (user) {
+    // Prevent self-demotion
+    if (req.user._id.toString() === user._id.toString()) {
+      res.status(400)
+      throw new Error('Cannot demote yourself')
+    }
+    
+    user.isAdmin = !user.isAdmin
+    const updatedUser = await user.save()
+    res.json({ 
+      _id: updatedUser._id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      isAdmin: updatedUser.isAdmin
+    })
+  } else {
+    res.status(404)
+    throw new Error('User not found')
+  }
+})
+
 module.exports = router;

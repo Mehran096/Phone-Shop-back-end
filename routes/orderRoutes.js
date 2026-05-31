@@ -1,5 +1,7 @@
-const express = require('express');
+const express = require('express'); 
+const mongoose = require ('mongoose')
 const Order = require('../models/orderModel.js');
+const User = require('../models/User');
 const { protect, admin } = require('../middleware/auth.js'); // <-- Add this
 const asyncHandler = require('express-async-handler');
 const router = express.Router();
@@ -116,13 +118,47 @@ router.put('/:id/deliver', protect, admin, async (req, res) => {
     res.status(404).json({ message: 'Order not found' });
   }
 });
-// @desc Get all orders
-// @route GET /api/orders
-// @access Private/Admin
-router.get('/', protect, admin, async (req, res) => {
-  const orders = await Order.find({}).populate('user', 'id name');
-  res.json(orders);
-});
+// @desc    Get all orders + pagination + search
+// @route   GET /api/orders
+// @access  Private/Admin
+router.get('/', protect, admin, asyncHandler(async (req, res) => {
+  const pageSize = 10
+  const page = Number(req.query.pageNumber) || 1
+  const keyword = req.query.keyword || ''
+
+  let query = {}
+
+  if (keyword) {
+    // Check if keyword is valid ObjectId for _id search
+    const isValidObjectId = mongoose.Types.ObjectId.isValid(keyword)
+    
+    // Find users matching the keyword first
+    const users = await User.find({
+      name: { $regex: keyword, $options: 'i' }
+    }).select('_id')
+    
+    const userIds = users.map(user => user._id)
+
+    query = {
+      $or: [
+        // Search by user if name matches
+        { user: { $in: userIds } },
+        // Search by _id only if it's a valid ObjectId
+        ...(isValidObjectId ? [{ _id: keyword }] : [])
+      ]
+    }
+  }
+
+  const count = await Order.countDocuments(query)
+  
+  const orders = await Order.find(query)
+    .populate('user', 'id name email')
+    .limit(pageSize)
+    .skip(pageSize * (page - 1))
+    .sort({ createdAt: -1 })
+
+  res.json({ orders, page, pages: Math.ceil(count / pageSize) })
+}))
 
 // DELETE order -- admin only
 router.delete('/:id', protect, admin, async (req, res) => {
