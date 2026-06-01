@@ -51,11 +51,19 @@ const createProduct = asyncHandler(async (req, res) => {
 
   const keyword = req.query.keyword
     ? {
-        $or: [
-          { name: { $regex: req.query.keyword, $options: 'i' } },
-          { brand: { $regex: req.query.keyword, $options: 'i' } },
-          { category: { $regex: req.query.keyword, $options: 'i'} }
-        ]
+        $and: req.query.keyword
+          .trim()
+          .split(' ')
+          .filter(Boolean) // remove empty strings from double spaces
+          .map(word => ({
+            $or: [
+              { name: { $regex: word, $options: 'i' } },
+              { brand: { $regex: word, $options: 'i' } },
+              { category: { $regex: word, $options: 'i' } },
+              // add color field if you have it
+              // { color: { $regex: word, $options: 'i' } },
+            ]
+          }))
       }
     : {}
 
