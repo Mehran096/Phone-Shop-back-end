@@ -16,6 +16,22 @@ const productSchema = mongoose.Schema({
   images: { type: [String], default: [] }, // gallery
   imagePublicIds: { type: [String], default: [] },
   description: { type: String, required: true },
+  colors: {
+    type: [
+      {
+        name: { type: String, required: true }, // "Dry Ice Blue"
+        hexCode: { type: String, default: '#000000' }, // "#CBD5E1"
+        images: { type: [String], required: true },
+        imagePublicIds: { type: [String], default: [] },
+        countInStock: { type: Number, required: true, default: 0 },
+        price: { type: Number }, // Optional: override base price
+      }
+    ],
+    default: []
+  },
+  reviews: [reviewSchema],
+rating: { type: Number, required: true, default: 0 },
+numReviews: { type: Number, required: true, default: 0 },
   specs: {
     storage: { type: String }, // 256GB
     ram: { type: String }, // 8GB
@@ -24,10 +40,7 @@ const productSchema = mongoose.Schema({
     camera: { type: String } // 48MP Triple
   },
   price: { type: Number, required: true, default: 0 },
-  countInStock: { type: Number, required: true, default: 0 },
-  rating: { type: Number, required: true, default: 0 },
-  numReviews: { type: Number, required: true, default: 0 },
-  reviews: [reviewSchema]
+  countInStock: { type: Number, required: true, default: 0 }, 
 }, { timestamps: true });
 
 module.exports = mongoose.model('Product', productSchema);

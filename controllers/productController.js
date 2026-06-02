@@ -2,44 +2,70 @@ const asyncHandler = require('express-async-handler')
 const Product = require('../models/Product')
 const { cloudinary } = require('../utils/cloudinary')
 
-// @desc Create product
+// @desc Create a product
 // @route POST /api/products
 // @access Private/Admin
 const createProduct = asyncHandler(async (req, res) => {
-  // console.log('BODY:', req.body)
-  // console.log('FILES:', req.files)
-  // console.log('CLOUDINARY ENV:', {
-  //   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  //   api_key: process.env.CLOUDINARY_API_KEY? 'SET' : 'MISSING',
-  //   api_secret: process.env.CLOUDINARY_API_SECRET? 'SET' : 'MISSING'
-  // })
+  try {
+    const { name, price, brand, category, countInStock, description } = req.body
 
-  if (!req.files || req.files.length === 0) {
-    res.status(400)
-    throw new Error('No files uploaded. Check multer and FormData key name.')
+    // Safe JSON parsing with fallbacks
+    let colors = []
+    let specs = []
+
+    try {
+      colors = req.body.colors? JSON.parse(req.body.colors) : []
+    } catch (e) {
+      res.status(400)
+      throw new Error('Invalid colors format')
+    }
+
+    try {
+      specs = req.body.specs? JSON.parse(req.body.specs) : []
+    } catch (e) {
+      res.status(400)
+      throw new Error('Invalid specs format')
+    }
+
+    const colorsWithImages = colors.map((color, idx) => {
+      const fieldName = `colorImages-${idx}`
+      const colorFiles = req.files? req.files[fieldName] || [] : []
+
+      return {
+        name: color.name || '',
+        hexCode: color.hexCode || '',
+        countInStock: Number(color.countInStock) || 0,
+        price: color.price? Number(color.price) : Number(price),
+        images: colorFiles.map(file => file.path),
+        imagePublicIds: colorFiles.map(file => file.filename),
+      }
+    })
+
+    const totalStock = colorsWithImages.length > 0
+     ? colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
+      : Number(countInStock) || 0
+
+    const product = new Product({
+      user: req.user._id,
+      name,
+      price: Number(price),
+      brand,
+      category,
+      countInStock: totalStock,
+      description,
+      specs,
+      colors: colorsWithImages,
+      numReviews: 0,
+      rating: 0,
+    })
+
+    const createdProduct = await product.save()
+    res.status(201).json(createdProduct)
+  } catch (error) {
+    console.log('CREATE PRODUCT ERROR:', error)
+    res.status(500).json({ message: error.message })
   }
-
-  const imageUrls = req.files.map(file => file.path)
-  const imagePublicIds = req.files.map(file => file.filename)
-
-  //...rest of your product creation code
-  const product = new Product({
-    name: req.body.name,
-    price: req.body.price,
-    user: req.user._id,
-    image: imageUrls[0] || '',
-    images: imageUrls,
-    imagePublicIds: imagePublicIds,
-    brand: req.body.brand,
-    category: req.body.category,
-    countInStock: req.body.countInStock,
-    description: req.body.description,
-  })
-
-  const createdProduct = await product.save()
-  res.status(201).json(createdProduct)
 })
-
 // @desc Get all products
 // @route GET /api/products
 // @access Public
@@ -93,50 +119,84 @@ const getProductById = asyncHandler(async (req, res) => {
 // @desc Update product
 // @route PUT /api/products/:id
 // @access Private/Admin
-const updateProduct = async (req, res) => {
+const updateProduct = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id)
-  if (!product) throw new Error('Product not found')
 
-  const existingImages = JSON.parse(req.body.existingImages || '[]')
-
-  // Delete images removed by user
-  const imagesToDelete = product.imagePublicIds.filter(
-    (id, idx) =>!existingImages.includes(product.images[idx])
-  )
-  if (imagesToDelete.length > 0) {
-    await cloudinary.api.delete_resources(imagesToDelete)
+  if (!product) {
+    res.status(404)
+    throw new Error('Product not found')
   }
 
-  // Upload new images
-  const newImages = req.files.map(file => file.path)
-  const newPublicIds = req.files.map(file => file.filename)
+  const { name, price, description, brand, category, specs, countInStock } = req.body
 
-  product.name = req.body.name
-  product.price = req.body.price
-  product.brand = req.body.brand
-  product.description = req.body.description
-  product.countInStock = req.body.countInStock
-  product.images = [...existingImages,...newImages]
+  // 1. Delete images from Cloudinary first
+  const imagesToDelete = req.body.imagesToDelete? JSON.parse(req.body.imagesToDelete) : []
+  console.log('Deleting from Cloudinary:', imagesToDelete)
 
-  // product.imagePublicIds = [...existingImages.map(img => {
-  //   // Find matching publicId for kept images
-  //   const idx = product.images.indexOf(img)
-  //   return product.imagePublicIds[idx]
-  // }).filter(Boolean),...newPublicIds]
-  product.imagePublicIds = existingImages.map(img => {
-  const idx = product.images.indexOf(img)
-  return idx!== -1? product.imagePublicIds[idx] : null
-}).filter(Boolean)
+  if (imagesToDelete.length > 0) {
+    try {
+      await cloudinary.api.delete_resources(imagesToDelete)
+      console.log('Cloudinary delete success')
+    } catch (err) {
+      console.log('Cloudinary delete error:', err)
+    }
+  }
 
- 
-product.imagePublicIds = [...product.imagePublicIds,...newPublicIds]
+  // 2. Parse colors and specs from FormData
+  const colors = req.body.colors? JSON.parse(req.body.colors) : []
+  const parsedSpecs = req.body.specs? JSON.parse(req.body.specs) : []
 
-product.image = product.images[0] || "" // Set main image to first image in array
-product.imagePublicId = product.imagePublicIds[0] || "" // Keep publicId in sync
+  // 3. Handle COLORS + their images
+  const colorsWithImages = colors.map((color, idx) => {
+    const fieldName = `colorImages-${idx}`
+    const newColorFiles = req.files?.[fieldName] || []
 
+    const newImageUrls = newColorFiles.map(file => file.path)
+    const newPublicIds = newColorFiles.map(file => file.filename)
+
+    // color.images and color.imagePublicIds already have deleted images removed
+    // because frontend sent the filtered arrays
+    return {
+      name: color.name,
+      hexCode: color.hexCode || '#000000',
+      countInStock: Number(color.countInStock) || 0,
+      price: color.price? Number(color.price) : Number(price),
+      images: [...(color.images || []),...newImageUrls],
+      imagePublicIds: [...(color.imagePublicIds || []),...newPublicIds],
+    }
+  })
+
+  // 4. Handle MAIN image update - optional if you still use it
+  if (req.files?.image) {
+    if (product.imagePublicIds?.[0]) {
+      await cloudinary.uploader.destroy(product.imagePublicIds[0])
+    }
+    product.image = req.files.image[0].path
+    product.imagePublicIds = [req.files.image[0].filename]
+  }
+
+  // 5. Update product fields
+  product.name = name || product.name
+  product.price = Number(price) || product.price
+  product.brand = brand || product.brand
+  product.category = category || product.category
+  product.description = description || product.description
+  product.specs = parsedSpecs
+  product.colors = colorsWithImages
+  product.countInStock = colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
 
   const updatedProduct = await product.save()
   res.json(updatedProduct)
+})
+
+const extractPublicIdFromUrl = (url) => {
+  try {
+    // Regex grabs everything after /upload/ and before the file extension
+    const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
+    return matches? matches[1] : null
+  } catch {
+    return null
+  }
 }
 
 // @desc Delete product
@@ -145,56 +205,98 @@ product.imagePublicId = product.imagePublicIds[0] || "" // Keep publicId in sync
 const deleteProduct = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id)
 
-  if (product) {
-    if (product.imagePublicIds && product.imagePublicIds.length > 0) {
-      await cloudinary.api.delete_resources(product.imagePublicIds)
-      
-    }
-
-    await product.deleteOne()
-    res.json({ message: 'Product removed' })
-  } else {
-    res.status(404)
-    throw new Error('Product not found')
-  }
-})
-
-//create reviews
-const createProductReview = async (req, res) => {
-  const { rating, comment } = req.body
-  const product = await Product.findById(req.params.id)
-
   if (!product) {
     res.status(404)
     throw new Error('Product not found')
   }
 
-  const existingReview = product.reviews.find(
-    r => r.user.toString() === req.user._id.toString()
-  )
+  try {
+    const publicIdsToDelete = new Set() // Use Set to avoid duplicates
 
-  if (existingReview) {
-    // Update existing review
-    existingReview.rating = Number(rating)
-    existingReview.comment = comment
-    existingReview.updatedAt = Date.now()
-  } else {
-    // Create new review
+    // Helper to extract public_id from Cloudinary URL
+    const extractPublicId = (url) => {
+      if (!url) return null
+      // Example: https://res.cloudinary.com/demo/image/upload/v1234/products/img.jpg
+      const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
+      return matches? matches[1] : null
+    }
+
+    // 1. Main product image
+    if (product.imagePublicIds?.length > 0) {
+      product.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
+    } else if (product.image) {
+      const id = extractPublicId(product.image)
+      if (id) publicIdsToDelete.add(id)
+    }
+
+    // 2. All color images
+    product.colors.forEach(color => {
+      // Use stored publicIds first
+      if (color.imagePublicIds?.length > 0) {
+        color.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
+      } else {
+        // Fallback: extract from URLs for old images
+        color.images?.forEach(url => {
+          const id = extractPublicId(url)
+          if (id) publicIdsToDelete.add(id)
+        })
+      }
+    })
+
+    // 3. Delete from Cloudinary
+    const idsArray = [...publicIdsToDelete]
+    if (idsArray.length > 0) {
+      console.log('Deleting from Cloudinary:', idsArray)
+      await cloudinary.api.delete_resources(idsArray)
+    }
+
+    // 4. Delete from DB
+    await product.deleteOne()
+    res.json({ message: 'Product removed' })
+
+  } catch (error) {
+    console.error('Delete error:', error)
+    res.status(500).json({ message: 'Failed to delete product' })
+  }
+})
+
+// @desc Create new review
+// @route POST /api/products/:id/reviews
+// @access Private
+const createProductReview = asyncHandler(async (req, res) => {
+  const { rating, comment } = req.body
+  const product = await Product.findById(req.params.id)
+
+  if (product) {
+    const alreadyReviewed = product.reviews.find(
+      (r) => r.user.toString() === req.user._id.toString()
+    )
+
+    if (alreadyReviewed) {
+      res.status(400)
+      throw new Error('Product already reviewed')
+    }
+
     const review = {
       name: req.user.name,
       rating: Number(rating),
       comment,
       user: req.user._id,
     }
+
     product.reviews.push(review)
+    product.numReviews = product.reviews.length
+    product.rating =
+      product.reviews.reduce((acc, item) => item.rating + acc, 0) /
+      product.reviews.length
+
+    await product.save()
+    res.status(201).json({ message: 'Review added' })
+  } else {
+    res.status(404)
+    throw new Error('Product not found')
   }
-
-  product.numReviews = product.reviews.length
-  product.rating = product.reviews.reduce((acc, item) => item.rating + acc, 0) / product.reviews.length
-
-  await product.save()
-  res.status(200).json({ message: existingReview ? 'Review updated' : 'Review added' })
-} 
+})
 
 // @desc    Update product specs
 // @route   PUT /api/products/:id/specs

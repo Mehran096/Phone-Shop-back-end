@@ -129,7 +129,7 @@ router.post('/auth', async (req, res) => {
       name: user.name,
       email: user.email,
       isAdmin: user.isAdmin,
-      token: generateToken(user._id), // ← THIS LINE IS MISSING
+      token: generateToken(user._id),
     })
   } else {
     res.status(401)
