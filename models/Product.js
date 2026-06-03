@@ -4,6 +4,7 @@ const reviewSchema = mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
   rating: { type: Number, required: true },
+  color: { type: String, required: true },
   comment: { type: String, required: true }
 }, { timestamps: true });
 
@@ -24,7 +25,7 @@ const productSchema = mongoose.Schema({
         images: { type: [String], required: true },
         imagePublicIds: { type: [String], default: [] },
         countInStock: { type: Number, required: true, default: 0 },
-        price: { type: Number }, // Optional: override base price
+       price: { type: Number, required: true, default: 0 },  
       }
     ],
     default: []

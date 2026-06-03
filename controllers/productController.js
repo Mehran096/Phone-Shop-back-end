@@ -128,6 +128,13 @@ const updateProduct = asyncHandler(async (req, res) => {
   }
 
   const { name, price, description, brand, category, specs, countInStock } = req.body
+  // Fix specs update
+    if (specs) {
+      product.specs = {
+        ...(product.specs ? product.specs.toObject() : {}),
+        ...specs,
+      }
+    }
 
   // 1. Delete images from Cloudinary first
   const imagesToDelete = req.body.imagesToDelete? JSON.parse(req.body.imagesToDelete) : []
@@ -184,6 +191,8 @@ const updateProduct = asyncHandler(async (req, res) => {
   product.specs = parsedSpecs
   product.colors = colorsWithImages
   product.countInStock = colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
+
+  
 
   const updatedProduct = await product.save()
   res.json(updatedProduct)
@@ -264,17 +273,18 @@ const deleteProduct = asyncHandler(async (req, res) => {
 // @route POST /api/products/:id/reviews
 // @access Private
 const createProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment } = req.body
+  const { rating, comment, color } = req.body
+
   const product = await Product.findById(req.params.id)
 
   if (product) {
     const alreadyReviewed = product.reviews.find(
-      (r) => r.user.toString() === req.user._id.toString()
+      (r) => r.user.toString() === req.user._id.toString() && r.color === color
     )
 
     if (alreadyReviewed) {
       res.status(400)
-      throw new Error('Product already reviewed')
+      throw new Error('Product already reviewed for this color')
     }
 
     const review = {
@@ -282,13 +292,17 @@ const createProductReview = asyncHandler(async (req, res) => {
       rating: Number(rating),
       comment,
       user: req.user._id,
-    }
+      color,
+    } 
 
     product.reviews.push(review)
     product.numReviews = product.reviews.length
-    product.rating =
-      product.reviews.reduce((acc, item) => item.rating + acc, 0) /
-      product.reviews.length
+
+    // FIXED: Calculate rating correctly per color
+    const colorReviews = product.reviews.filter(r => r.color === color)
+    product.rating = colorReviews.length > 0 
+      ? colorReviews.reduce((acc, item) => acc + item.rating, 0) / colorReviews.length
+      : 0
 
     await product.save()
     res.status(201).json({ message: 'Review added' })
@@ -298,23 +312,59 @@ const createProductReview = asyncHandler(async (req, res) => {
   }
 })
 
+// @desc    Update product review
+// @route   PUT /api/products/:id/reviews
+// @access  Private
+const updateProductReview = asyncHandler(async (req, res) => {
+  const { rating, comment, color } = req.body;
+
+  const product = await Product.findById(req.params.id);
+
+  if (product) {
+    const review = product.reviews.find(
+      (r) => r.user.toString() === req.user._id.toString() && r.color === color
+    );
+
+    if (review) {
+      review.rating = Number(rating);
+      review.comment = comment;
+      
+      product.rating =
+        product.reviews.reduce((acc, item) => item.rating + acc, 0) /
+        product.reviews.length;
+
+      await product.save();
+      res.status(200).json({ message: 'Review updated' });
+    } else {
+      res.status(404);
+      throw new Error('Review not found');
+    }
+  } else {
+    res.status(404);
+    throw new Error('Product not found');
+  }
+});
+
 // @desc    Update product specs
 // @route   PUT /api/products/:id/specs
 // @access  Private/Admin
-const updateProductSpecs = async (req, res) => {
+const updateProductSpecs = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id)
 
   if (product) {
+    // Fix: Default to empty object if specs is undefined
     product.specs = {
-      ...product.specs.toObject(),
+      ...(product.specs ? product.specs.toObject() : {}),
       ...req.body.specs,
     }
+    
     const updatedProduct = await product.save()
     res.json(updatedProduct)
   } else {
-    res.status(404).json({ message: 'Product not found' })
+    res.status(404)
+    throw new Error('Product not found')
   }
-}
+})
 
 
 
@@ -325,5 +375,6 @@ module.exports = {
   updateProduct,
   deleteProduct,
   createProductReview,
-  updateProductSpecs
+  updateProductSpecs,
+  updateProductReview
 }
