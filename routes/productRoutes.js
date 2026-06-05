@@ -8,7 +8,12 @@ const {
   deleteProduct,
   createProductReview,
   updateProductSpecs,
-  updateProductReview
+  updateProductReview,
+  deleteProductReview,
+  markReviewHelpful,
+  addAdminReply,
+  editAdminReply,
+  deleteAdminReply
 } = require('../controllers/productController')
 
 const { protect, admin } = require('../middleware/auth.js')
@@ -33,6 +38,34 @@ router.route('/:id')
   .delete(protect, admin, deleteProduct)
 
 router.route('/:id/specs').put(protect, admin, updateProductSpecs)
-router.route('/:id/reviews').post(protect, createProductReview).put(protect, updateProductReview);
+
+router.route('/:id/reviews')
+  .post(protect, createProductReview)
+
+// Put ALL specific routes first
+router.route('/:id/reviews/helpful').put(protect, markReviewHelpful);
+router.route('/:id/reviews/reply').put(protect, admin, addAdminReply);
+router.route('/:id/reviews/reply/edit').put(protect, admin, editAdminReply);
+router.route('/:id/reviews/reply').delete(protect, admin, deleteAdminReply);
+
+// Put the :reviewId route LAST
+router.route('/:id/reviews/:reviewId')
+  .put(protect, updateProductReview)
+  .delete(protect, deleteProductReview);
+
+// router.route('/:id/reviews')
+// .post(protect, createProductReview)
+
+
+//  router.route('/:id/reviews/:reviewId')
+//   .put(protect, updateProductReview)
+//   .delete(protect, deleteProductReview);
+
+// router.route('/:id/reviews/helpful').put(protect, markReviewHelpful);
+
+// //admin helpful reply
+// router.route('/:id/reviews/reply').put(protect, admin, addAdminReply);
+// router.route('/:id/reviews/reply/edit').put(protect, admin, editAdminReply);
+// router.route('/:id/reviews/reply').delete(protect, admin, deleteAdminReply);
 
 module.exports = router

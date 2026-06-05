@@ -273,7 +273,8 @@ const deleteProduct = asyncHandler(async (req, res) => {
 // @route POST /api/products/:id/reviews
 // @access Private
 const createProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment, color } = req.body
+  const { rating, comment, color, images } = req.body
+  console.log('Backend got images:', images);
 
   const product = await Product.findById(req.params.id)
 
@@ -293,6 +294,7 @@ const createProductReview = asyncHandler(async (req, res) => {
       comment,
       user: req.user._id,
       color,
+      images: images || [],
     } 
 
     product.reviews.push(review)
@@ -312,33 +314,229 @@ const createProductReview = asyncHandler(async (req, res) => {
   }
 })
 
-// @desc    Update product review
-// @route   PUT /api/products/:id/reviews
-// @access  Private
+// @desc Update product review
+// @route PUT /api/products/:id/reviews/:reviewId
+// @access Private
 const updateProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment, color } = req.body;
+  const { rating, comment, images } = req.body;
 
+  const product = await Product.findById(req.params.id);
+  if (!product) {
+    res.status(404);
+    throw new Error('Product not found');
+  }
+
+  const review = product.reviews.id(req.params.reviewId);
+  if (!review) {
+    res.status(404);
+    throw new Error('Review not found');
+  }
+
+  // Check if user owns this review
+  if (review.user.toString()!== req.user._id.toString()) {
+    res.status(401);
+    throw new Error('Not authorized');
+  }
+
+  // 1. Find images that were removed and delete from Cloudinary
+  const oldImages = review.images || [];
+  const newImages = images || [];
+  const imagesToDelete = oldImages.filter((img) =>!newImages.includes(img));
+
+  for (const imageUrl of imagesToDelete) {
+    try {
+      // Extract public_id from URL: https://res.cloudinary.com/demo/image/upload/v123/reviews/abc123.jpg
+      // Result: "reviews/abc123"
+      const publicId = imageUrl.split('/').slice(-2).join('/').split('.')[0];
+      await cloudinary.uploader.destroy(publicId);
+      console.log('Deleted from Cloudinary:', publicId);
+    } catch (err) {
+      console.error('Cloudinary delete failed:', err);
+      // Don't throw - still update the review even if Cloudinary delete fails
+    }
+  }
+
+  // 2. Update review fields
+  review.rating = Number(rating) || review.rating;
+  review.comment = comment || review.comment;
+  review.images = newImages;
+
+  // 3. Recalculate product rating
+  product.rating =
+    product.reviews.reduce((acc, item) => item.rating + acc, 0) /
+    product.reviews.length;
+
+  await product.save();
+  res.status(200).json({ message: 'Review updated' });
+});
+
+// @desc Delete product review
+// @route DELETE /api/products/:id/reviews/:reviewId
+// @access Private
+const deleteProductReview = asyncHandler(async (req, res) => {
+  const product = await Product.findById(req.params.id);
+
+  if (!product) {
+    res.status(404);
+    throw new Error('Product not found');
+  }
+
+  // Find review by _id from URL params
+  const review = product.reviews.find(
+    (r) => r._id.toString() === req.params.reviewId
+  );
+
+  if (!review) {
+    res.status(404);
+    throw new Error('Review not found');
+  }
+
+  // Check if user owns the review or is admin
+  if (review.user.toString()!== req.user._id.toString() &&!req.user.isAdmin) {
+    res.status(401);
+    throw new Error('Not authorized');
+  }
+
+  // 1. Delete images from Cloudinary first
+  if (review.images && review.images.length > 0) {
+    for (const imageUrl of review.images) {
+      try {
+        const publicId = imageUrl.split('/').pop().split('.')[0];
+        await cloudinary.uploader.destroy(`phone-products/${publicId}`);
+      } catch (err) {
+        console.error('Cloudinary delete failed:', err);
+        // Don't throw - continue deleting review even if Cloudinary fails
+      }
+    }
+  }
+
+  // 2. Remove the review from array
+  product.reviews = product.reviews.filter(
+    (r) => r._id.toString()!== req.params.reviewId
+  );
+
+  // 3. Recalculate numReviews and rating
+  product.numReviews = product.reviews.length;
+  product.rating =
+    product.reviews.length > 0
+     ? product.reviews.reduce((acc, item) => item.rating + acc, 0) /
+        product.reviews.length
+      : 0;
+
+  // 4. SAVE TO DATABASE - YOU'RE MISSING THIS
+  await product.save();
+
+  res.json({ message: 'Review removed' });
+});
+
+// @desc Mark review as helpful
+// @route PUT /api/products/:id/reviews/helpful
+// @access Private
+const markReviewHelpful = asyncHandler(async (req, res) => {
+  const { reviewId } = req.body;
   const product = await Product.findById(req.params.id);
 
   if (product) {
-    const review = product.reviews.find(
-      (r) => r.user.toString() === req.user._id.toString() && r.color === color
-    );
+    const review = product.reviews.id(reviewId);
 
-    if (review) {
-      review.rating = Number(rating);
-      review.comment = comment;
-      
-      product.rating =
-        product.reviews.reduce((acc, item) => item.rating + acc, 0) /
-        product.reviews.length;
-
-      await product.save();
-      res.status(200).json({ message: 'Review updated' });
-    } else {
+    if (!review) {
       res.status(404);
       throw new Error('Review not found');
     }
+
+    const alreadyVoted = review.helpful.find(
+      (u) => u.toString() === req.user._id.toString()
+    );
+
+    if (alreadyVoted) {
+      // Unvote if already voted
+      review.helpful = review.helpful.filter(
+        (u) => u.toString()!== req.user._id.toString()
+      );
+    } else {
+      // Add vote
+      review.helpful.push(req.user._id);
+    }
+
+    await product.save();
+    res.status(200).json({ message: 'Vote updated' });
+  } else {
+    res.status(404);
+    throw new Error('Product not found');
+  }
+});
+
+// @desc Add admin reply to review
+// @route PUT /api/products/:id/reviews/reply
+// @access Private/Admin
+const addAdminReply = asyncHandler(async (req, res) => {
+  const { reviewId, replyText } = req.body;
+  const product = await Product.findById(req.params.id);
+
+  if (product) {
+    const review = product.reviews.id(reviewId);
+
+    if (!review) {
+      res.status(404);
+      throw new Error('Review not found');
+    }
+
+    review.adminReply = {
+      text: replyText,
+      name: req.user.name,
+      repliedAt: Date.now(),
+    };
+
+    await product.save();
+    res.status(200).json({ message: 'Reply added' });
+  } else {
+    res.status(404);
+    throw new Error('Product not found');
+  }
+});
+
+// @desc Update admin reply
+// @route PUT /api/products/:id/reviews/reply/edit
+// @access Private/Admin
+const editAdminReply = asyncHandler(async (req, res) => {
+  const { reviewId, replyText } = req.body;
+  const product = await Product.findById(req.params.id);
+
+  if (product) {
+    const review = product.reviews.id(reviewId);
+    if (!review ||!review.adminReply?.text) {
+      res.status(404);
+      throw new Error('Reply not found');
+    }
+
+    review.adminReply.text = replyText;
+    review.adminReply.repliedAt = Date.now();
+
+    await product.save();
+    res.status(200).json({ message: 'Reply updated' });
+  } else {
+    res.status(404);
+    throw new Error('Product not found');
+  }
+});
+
+// @desc Delete admin reply
+// @route DELETE /api/products/:id/reviews/reply
+// @access Private/Admin
+const deleteAdminReply = asyncHandler(async (req, res) => {
+  const { reviewId } = req.body;
+  const product = await Product.findById(req.params.id);
+
+  if (product) {
+    const review = product.reviews.id(reviewId);
+    if (!review) {
+      res.status(404);
+      throw new Error('Review not found');
+    }
+
+    review.adminReply = undefined;
+    await product.save();
+    res.status(200).json({ message: 'Reply deleted' });
   } else {
     res.status(404);
     throw new Error('Product not found');
@@ -376,5 +574,10 @@ module.exports = {
   deleteProduct,
   createProductReview,
   updateProductSpecs,
-  updateProductReview
+  updateProductReview,
+  deleteProductReview,
+  markReviewHelpful,
+  addAdminReply,
+  editAdminReply,
+   deleteAdminReply
 }
