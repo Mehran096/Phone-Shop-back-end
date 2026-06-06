@@ -64,12 +64,13 @@ app.post('/api/orders/webhook', express.raw({type: 'application/json'}), async (
 
 // Middleware
 app.use(cors({
-  origin: ['https://phone-shop-front-end-woad.vercel.app', 'http://localhost:5173'] // Vercel URL + local
+  origin: ['https://phone-shop-front-end-woad.vercel.app', 'http://localhost:5173'],
+   credentials: true  
 }));
 
 app.use(express.json()); // Body parser
 app.use(express.urlencoded({ extended: true }))
-app.use('/api/jazzcash', jazzcashRoutes)
+//app.use('/api/jazzcash', jazzcashRoutes)
 
 // Routes
 app.get('/', (req, res) => {

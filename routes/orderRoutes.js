@@ -179,7 +179,7 @@ router.delete('/:id', protect, admin, async (req, res) => {
 // }
 })
 
-//stripe payment testing
+// Stripe payment testing
 router.post('/create-checkout-session', protect, async (req, res) => {
   try {
     const { orderItems, shippingAddress, paymentMethod, itemsPrice, taxPrice, shippingPrice, totalPrice } = req.body
@@ -201,41 +201,51 @@ router.post('/create-checkout-session', protect, async (req, res) => {
       isPaid: false,
     })
 
-    // console.log('Order created:', order._id)
-    // console.log('FRONTEND_URL:', process.env.FRONTEND_URL)
-
     // 2. Create Stripe session using the new order._id
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: order.orderItems.map(item => ({
         price_data: {
           currency: 'usd',
-          product_data: { name: item.name },
+          product_data: { 
+            name: item.name,
+            images: [item.image], // Optional: shows product image on Stripe
+          },
           unit_amount: Math.round(item.price * 100),
         },
         quantity: item.qty,
       })),
       mode: 'payment',
-      success_url: `${process.env.FRONTEND_URL}/order/${order._id}?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/order/${order._id}`,
+      success_url: `${process.env.FRONTEND_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL}/cart`,
       metadata: { orderId: order._id.toString() },
       customer_email: req.user.email,
     })
 
     res.json({ url: session.url })
-    
   } catch (error) {
-    //console.error(error)
+    console.error(error)
     res.status(500).json({ message: error.message })
   }
 })
 
-router.get('/order/:sessionId', protect, async (req, res) => {
-  const session = await stripe.checkout.sessions.retrieve(req.params.sessionId)
-  
-  if (session.payment_status === 'paid') {
-    const order = await Order.findById(session.metadata.orderId)
-    if (order) {
+
+router.get('/verify-session/:sessionId', protect, async (req, res) => {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(req.params.sessionId)
+    
+    if (session.payment_status === 'paid') {
+      const order = await Order.findById(session.metadata.orderId)
+      
+      if (!order) {  // Fixed typo: was "lorder"
+        return res.status(404).json({ message: 'Order not found' })
+      }
+      
+      // Prevent double updates
+      if (order.isPaid) {
+        return res.json(order)
+      }
+      
       order.isPaid = true
       order.paidAt = Date.now()
       order.paymentResult = {
@@ -245,10 +255,16 @@ router.get('/order/:sessionId', protect, async (req, res) => {
         email_address: session.customer_email,
       }
       await order.save()
+      
+      // Clear user's cart in MongoDB after successful payment
+      await User.findByIdAndUpdate(order.user, { cartItems: [] })
+      
       res.json(order)
+    } else {
+      res.status(400).json({ message: 'Order not paid' })
     }
-  } else {
-    res.status(404).json({ message: 'Order not paid' })
+  } catch (error) {
+    res.status(500).json({ message: error.message })
   }
 })
 

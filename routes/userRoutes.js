@@ -12,50 +12,97 @@ const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: '30d',
   });
+};
+ 
+ 
 
-  res.cookie('jwt', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV !== 'development',
-    sameSite: 'strict',
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-  });
-}
-// const generateToken = (res, userId) => {
-//   const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
-//     expiresIn: '30d',
-//   });
-
-//   res.cookie('jwt', token, {
-//     httpOnly: true,
-//     secure: process.env.NODE_ENV !== 'development',
-//     sameSite: 'strict',
-//     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-//   });
-// };
-
-// @desc Register user
+// @desc    Register user
+// @route   POST /api/users
+// @access  Public
 router.post('/', asyncHandler(async (req, res) => {
-  const { name, email, password } = req.body;
-  const userExists = await User.findOne({ email });
+  const { name, email, password } = req.body
+  const userExists = await User.findOne({ email })
 
   if (userExists) {
     res.status(400)
     throw new Error('User already exists')
   }
-
+  
   const user = await User.create({ name, email, password })
 
   if (user) {
+    const token = generateToken(user._id) // Only returns token string
+
+    // Set cookie HERE
+    res.cookie('jwt', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production', // false for http://localhost
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    })
+
     res.status(201).json({
       _id: user._id,
       name: user.name,
       email: user.email,
       isAdmin: user.isAdmin,
-      token: generateToken(user._id), // ← THIS LINE IS MISSING
+      cartItems: user.cartItems // <- Add this for Redux
     })
   } else {
     res.status(400)
     throw new Error('Invalid user data')
+  }
+}))
+
+// @desc    Get user cart
+// @route   GET /api/users/cart
+// @access  Private
+router.get('/cart', protect, asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id)
+
+  if (user) {
+    res.json({ cartItems: user.cartItems || [] })
+  } else {
+    res.status(404)
+    throw new Error('User not found')
+  }
+}))
+
+// @desc    Save user cart
+// @route   POST /api/users/cart
+// @access  Private
+router.post('/cart', protect, asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id)
+
+  if (user) {
+    const guestCartItems = req.body.cartItems || []
+    const existingCart = user.cartItems || []
+
+    // Merge guest items into existing DB cart
+    guestCartItems.forEach(guestItem => {
+      const existItem = existingCart.find(
+        x => x._id.toString() === guestItem._id.toString()
+      )
+      
+      if (existItem) {
+        // If same product exists, add quantities
+        existItem.qty += guestItem.qty
+      } else {
+        // If new product, push to cart
+        existingCart.push({ ...guestItem })
+      }
+    })
+
+    user.cartItems = existingCart
+    const updatedUser = await user.save()
+    
+    res.status(200).json({ 
+      message: 'Cart saved successfully',
+      cartItems: updatedUser.cartItems 
+    })
+  } else {
+    res.status(404)
+    throw new Error('User not found')
   }
 }))
 
@@ -119,38 +166,63 @@ router.get('/admin/users', protect, admin, async (req, res) => {
 // });
 
 // @desc Auth user & get token
-router.post('/auth', async (req, res) => {
-  const { email, password } = req.body;
-  const user = await User.findOne({ email });
+// @route POST /api/users/auth
+// @access Public
+router.post('/auth', asyncHandler(async (req, res) => {
+  const { email, password } = req.body
+  const user = await User.findOne({ email })
 
-   if (user && (await user.matchPassword(password))) {
+  if (user && (await user.matchPassword(password))) {
+    const token = generateToken(user._id)
+
+    res.cookie('jwt', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000
+    })
+
     res.json({
       _id: user._id,
       name: user.name,
       email: user.email,
       isAdmin: user.isAdmin,
-      token: generateToken(user._id),
+      cartItems: user.cartItems || [] // <- Add this
     })
   } else {
     res.status(401)
     throw new Error('Invalid email or password')
   }
-});
+}))
 
 // @desc Logout user / clear cookie
 router.post('/logout', (req, res) => {
   res.cookie('jwt', '', {
     httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
     expires: new Date(0),
-  });
-  res.status(200).json({ message: 'Logged out successfully' });
-});
+  })
+  res.status(200).json({ message: 'Logged out successfully' })
+})
 
 // @desc Get user profile
-router.get('/profile', protect,  async (req, res) => {
-  // We'll add auth middleware next
-  res.json({ message: 'User profile' });
-});
+router.get('/profile', protect, asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id)
+  
+  if (user) {
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      cartItems: user.cartItems
+    })
+  } else {
+    res.status(404)
+    throw new Error('User not found')
+  }
+}))
 
 //PUT PROFILE
 router.put('/profile', protect, asyncHandler(async (req, res) => {
@@ -170,7 +242,8 @@ router.put('/profile', protect, asyncHandler(async (req, res) => {
       name: updatedUser.name,
       email: updatedUser.email,
       isAdmin: updatedUser.isAdmin,
-      token: generateToken(updatedUser._id),
+      cartItems: updatedUser.cartItems // <- Add this
+      // token: generateToken(updatedUser._id), // <- Delete this line
     })
   } else {
     res.status(404)
