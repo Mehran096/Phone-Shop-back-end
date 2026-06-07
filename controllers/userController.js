@@ -94,6 +94,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
     res.status(200).json({ message: 'Email sent' })
   } catch (err) {
+    console.error('SEND EMAIL FAILED:', err)
     user.resetPasswordToken = undefined
     user.resetPasswordExpire = undefined
     await user.save({ validateBeforeSave: false })
