@@ -5,6 +5,11 @@ const router = express.Router();
 //const generateToken = require('../utils/generateToken.js')
 const { protect} = require('../middleware/auth.js');
 const { admin } = require('../middleware/adminMiddleware');
+const { 
+   
+  forgotPassword, 
+  resetPassword 
+} = require('../controllers/userController')
 const asyncHandler = require('express-async-handler');
  
 // Generate JWT
@@ -357,4 +362,7 @@ router.put('/:id/toggleAdmin', protect, admin, async (req, res) => {
   }
 })
 
+
+router.post('/forgotpassword', forgotPassword)
+router.put('/resetpassword/:resettoken', resetPassword)
 module.exports = router;

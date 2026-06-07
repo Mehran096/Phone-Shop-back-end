@@ -25,6 +25,7 @@
       "mongoose": "^9.6.1",
       "multer": "^2.1.1",
       "multer-storage-cloudinary": "^4.0.0",
+      "nodemailer": "^8.0.10",
       "react-router-dom": "^7.15.0",
       "stripe": "^22.1.1"
    },

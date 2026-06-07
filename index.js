@@ -20,6 +20,9 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 connectDB(); // Connect to MongoDB Atlas
 
 const app = express();
+ 
+// console.log('Using url:', process.env.FRONTEND_URL)
+// console.log('SMTP_HOST:', process.env.SMTP_HOST)
 // 1. Put webhook route BEFORE express.json()
 //app.use('/api/orders/webhook', express.raw({type: 'application/json'}), orderRoutes)
 app.post('/api/orders/webhook', express.raw({type: 'application/json'}), async (req, res) => {
