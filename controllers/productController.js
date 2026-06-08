@@ -314,6 +314,61 @@ const createProductReview = asyncHandler(async (req, res) => {
   }
 })
 
+// @desc Get all reviews for a product
+// @route GET /api/products/:id/reviews
+// @access Public
+const getProductReviews = asyncHandler(async (req, res) => {
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const { color, sort } = req.query;
+
+  const product = await Product.findById(req.params.id);
+
+  if (!product) {
+    res.status(404);
+    throw new Error('Product not found');
+  }
+
+  let reviews = product.reviews;
+
+  // Filter by color if passed: ?color=Black
+  if (color) {
+    reviews = reviews.filter(r => r.color === color);
+  }
+
+  // Add helpfulCount on the fly since you store array of user IDs
+  reviews = reviews.map(review => ({
+    ...review.toObject(), // convert Mongoose doc to plain object
+    helpfulCount: review.helpful.length, // count array length
+    createdAt: review.createdAt // timestamps: true gives you this
+  }));
+
+  // Sort: newest, oldest, highest_rating, most_helpful
+  if (sort === 'oldest') {
+    reviews.sort((a, b) => a.createdAt - b.createdAt);
+  } else if (sort === 'highest_rating') {
+    reviews.sort((a, b) => b.rating - a.rating);
+  } else if (sort === 'most_helpful') {
+    reviews.sort((a, b) => b.helpfulCount - a.helpfulCount);
+  } else {
+    // Default: newest first
+    reviews.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  const totalReviews = reviews.length;
+  const paginatedReviews = reviews.slice(skip, skip + limit);
+
+  res.json({
+    reviews: paginatedReviews,
+    page,
+    totalPages: Math.ceil(totalReviews / limit),
+    totalReviews,
+    color: color || 'all'
+  });
+});
+
 // @desc Update product review
 // @route PUT /api/products/:id/reviews/:reviewId
 // @access Private
@@ -429,15 +484,13 @@ const deleteProductReview = asyncHandler(async (req, res) => {
   res.json({ message: 'Review removed' });
 });
 
-// @desc Mark review as helpful
-// @route PUT /api/products/:id/reviews/helpful
+// @route PUT /api/products/:id/reviews/:reviewId/helpful
 // @access Private
 const markReviewHelpful = asyncHandler(async (req, res) => {
-  const { reviewId } = req.body;
   const product = await Product.findById(req.params.id);
-
+  
   if (product) {
-    const review = product.reviews.id(reviewId);
+    const review = product.reviews.id(req.params.reviewId);
 
     if (!review) {
       res.status(404);
@@ -449,9 +502,9 @@ const markReviewHelpful = asyncHandler(async (req, res) => {
     );
 
     if (alreadyVoted) {
-      // Unvote if already voted
+      // Unvote
       review.helpful = review.helpful.filter(
-        (u) => u.toString()!== req.user._id.toString()
+        (u) => u.toString() !== req.user._id.toString()
       );
     } else {
       // Add vote
@@ -459,88 +512,97 @@ const markReviewHelpful = asyncHandler(async (req, res) => {
     }
 
     await product.save();
-    res.status(200).json({ message: 'Vote updated' });
+    
+    // Return count + whether current user voted
+    res.status(200).json({ 
+      helpfulCount: review.helpful.length,
+      userVoted: !alreadyVoted 
+    });
   } else {
     res.status(404);
     throw new Error('Product not found');
   }
 });
 
-// @desc Add admin reply to review
-// @route PUT /api/products/:id/reviews/reply
+// @route POST /api/products/:id/reviews/:reviewId/reply
 // @access Private/Admin
 const addAdminReply = asyncHandler(async (req, res) => {
-  const { reviewId, replyText } = req.body;
-  const product = await Product.findById(req.params.id);
+  const { reply: replyText } = req.body; // <-- Only get reply from body
+  const product = await Product.findById(req.params.id); // productId from URL
+  const reviewId = req.params.reviewId; // <-- Get reviewId from URL params
 
-  if (product) {
-    const review = product.reviews.id(reviewId);
-
-    if (!review) {
-      res.status(404);
-      throw new Error('Review not found');
-    }
-
-    review.adminReply = {
-      text: replyText,
-      name: req.user.name,
-      repliedAt: Date.now(),
-    };
-
-    await product.save();
-    res.status(200).json({ message: 'Reply added' });
-  } else {
+  if (!product) {
     res.status(404);
     throw new Error('Product not found');
   }
+
+  const review = product.reviews.id(reviewId);
+
+  if (!review) {
+    res.status(404);
+    throw new Error('Review not found');
+  }
+
+  review.adminReply = {
+    reply: replyText, // <-- Use 'reply' not 'text' to match frontend
+    name: req.user.name,
+    user: req.user._id,
+    repliedAt: Date.now(),
+  };
+
+  await product.save();
+  res.status(201).json({ message: 'Reply added' });
 });
 
-// @desc Update admin reply
-// @route PUT /api/products/:id/reviews/reply/edit
+// @route PUT /api/products/:id/reviews/:reviewId/reply
 // @access Private/Admin
 const editAdminReply = asyncHandler(async (req, res) => {
-  const { reviewId, replyText } = req.body;
+  const { reply } = req.body; // <-- Only get reply from body
+  const reviewId = req.params.reviewId; // <-- Get from URL params
   const product = await Product.findById(req.params.id);
 
-  if (product) {
-    const review = product.reviews.id(reviewId);
-    if (!review ||!review.adminReply?.text) {
-      res.status(404);
-      throw new Error('Reply not found');
-    }
-
-    review.adminReply.text = replyText;
-    review.adminReply.repliedAt = Date.now();
-
-    await product.save();
-    res.status(200).json({ message: 'Reply updated' });
-  } else {
+  if (!product) {
     res.status(404);
     throw new Error('Product not found');
   }
+
+  const review = product.reviews.id(reviewId);
+
+  if (!review || !review.adminReply) { // <-- Check adminReply exists
+    res.status(404);
+    throw new Error('Reply not found');
+  }
+
+  review.adminReply.reply = reply; // <-- Use 'reply' field
+  review.adminReply.repliedAt = Date.now();
+
+  await product.save();
+  res.status(200).json({ message: 'Reply updated' });
 });
 
 // @desc Delete admin reply
-// @route DELETE /api/products/:id/reviews/reply
+// @route DELETE /api/products/:id/reviews/:reviewId/reply
 // @access Private/Admin
 const deleteAdminReply = asyncHandler(async (req, res) => {
-  const { reviewId } = req.body;
+  const reviewId = req.params.reviewId; // <-- Get from URL params, not body
   const product = await Product.findById(req.params.id);
 
-  if (product) {
-    const review = product.reviews.id(reviewId);
-    if (!review) {
-      res.status(404);
-      throw new Error('Review not found');
-    }
-
-    review.adminReply = undefined;
-    await product.save();
-    res.status(200).json({ message: 'Reply deleted' });
-  } else {
+  if (!product) {
     res.status(404);
     throw new Error('Product not found');
   }
+
+  const review = product.reviews.id(reviewId);
+  
+  if (!review || !review.adminReply) {
+    res.status(404);
+    throw new Error('Review or reply not found');
+  }
+
+  review.adminReply = undefined; // <-- Delete the reply
+
+  await product.save();
+  res.json({ message: 'Reply deleted' });
 });
 
 // @desc    Update product specs
@@ -573,6 +635,7 @@ module.exports = {
   updateProduct,
   deleteProduct,
   createProductReview,
+  getProductReviews,
   updateProductSpecs,
   updateProductReview,
   deleteProductReview,

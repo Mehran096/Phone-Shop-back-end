@@ -7,6 +7,7 @@ const {
   updateProduct,
   deleteProduct,
   createProductReview,
+  getProductReviews,
   updateProductSpecs,
   updateProductReview,
   deleteProductReview,
@@ -39,33 +40,23 @@ router.route('/:id')
 
 router.route('/:id/specs').put(protect, admin, updateProductSpecs)
 
+router.route('/:id/reviews').get(getProductReviews);
 router.route('/:id/reviews')
-  .post(protect, createProductReview)
+  .post(protect, createProductReview);
 
-// Put ALL specific routes first
-router.route('/:id/reviews/helpful').put(protect, markReviewHelpful);
-router.route('/:id/reviews/reply').put(protect, admin, addAdminReply);
-router.route('/:id/reviews/reply/edit').put(protect, admin, editAdminReply);
-router.route('/:id/reviews/reply').delete(protect, admin, deleteAdminReply);
+// Specific routes FIRST - order matters in Express
+router.route('/:id/reviews/:reviewId/helpful').put(protect, markReviewHelpful);
 
-// Put the :reviewId route LAST
+router.route('/:id/reviews/:reviewId/reply')
+  .post(protect, admin, addAdminReply)
+  .put(protect, admin, editAdminReply)
+  .delete(protect, admin, deleteAdminReply);
+
+// Generic :reviewId route LAST
 router.route('/:id/reviews/:reviewId')
   .put(protect, updateProductReview)
   .delete(protect, deleteProductReview);
 
-// router.route('/:id/reviews')
-// .post(protect, createProductReview)
 
-
-//  router.route('/:id/reviews/:reviewId')
-//   .put(protect, updateProductReview)
-//   .delete(protect, deleteProductReview);
-
-// router.route('/:id/reviews/helpful').put(protect, markReviewHelpful);
-
-// //admin helpful reply
-// router.route('/:id/reviews/reply').put(protect, admin, addAdminReply);
-// router.route('/:id/reviews/reply/edit').put(protect, admin, editAdminReply);
-// router.route('/:id/reviews/reply').delete(protect, admin, deleteAdminReply);
 
 module.exports = router

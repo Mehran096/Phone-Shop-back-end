@@ -8,11 +8,12 @@ const reviewSchema = mongoose.Schema({
   comment: { type: String, required: true },
   helpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   images: [String],
-  adminReply: {  
-      text: String,
-      name: String,
-      repliedAt: Date,
-    },
+  adminReply: {
+    reply: String,
+    name: String,
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    repliedAt: Date,
+  },
 }, { timestamps: true });
 
 const productSchema = mongoose.Schema({
