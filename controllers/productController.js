@@ -70,31 +70,37 @@ const createProduct = asyncHandler(async (req, res) => {
 // @route GET /api/products
 // @access Public
 //pagination and search
- const getProducts = asyncHandler(async (req, res) => {
+// pagination and search
+const getProducts = asyncHandler(async (req, res) => {
   const pageSize = 8
-  //const pageSize = req.query.pageNumber == 1 ? 8 : 6
   const page = Number(req.query.pageNumber) || 1
 
-  const keyword = req.query.keyword
+  const { keyword, brand } = req.query // add brand here
+
+  const searchFilter = keyword
     ? {
-        $and: req.query.keyword
+        $and: keyword
           .trim()
           .split(' ')
-          .filter(Boolean) // remove empty strings from double spaces
-          .map(word => ({
+          .filter(Boolean)
+          .map((word) => ({
             $or: [
               { name: { $regex: word, $options: 'i' } },
               { brand: { $regex: word, $options: 'i' } },
               { category: { $regex: word, $options: 'i' } },
-              // add color field if you have it
-              // { color: { $regex: word, $options: 'i' } },
-            ]
-          }))
+              { 'colors.name': { $regex: word, $options: 'i' } }, 
+              { 'specs.storage': { $regex: word, $options: 'i' } }, 
+            ],
+          })),
       }
     : {}
 
-  const count = await Product.countDocuments({ ...keyword })
-  const products = await Product.find({ ...keyword })
+  const brandFilter = brand ? { brand: { $regex: brand, $options: 'i' } } : {}
+
+  const filter = { ...searchFilter, ...brandFilter } // combine both filters
+
+  const count = await Product.countDocuments(filter)
+  const products = await Product.find(filter)
     .limit(pageSize)
     .skip(pageSize * (page - 1))
     .sort({ createdAt: -1 })
@@ -547,7 +553,7 @@ const addAdminReply = asyncHandler(async (req, res) => {
     reply: replyText, // <-- Use 'reply' not 'text' to match frontend
     name: req.user.name,
     user: req.user._id,
-    repliedAt: Date.now(),
+    createdAt: new Date(),
   };
 
   await product.save();

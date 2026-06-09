@@ -12,7 +12,7 @@ const reviewSchema = mongoose.Schema({
     reply: String,
     name: String,
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    repliedAt: Date,
+    createdAt: Date,
   },
 }, { timestamps: true });
 
