@@ -16,6 +16,13 @@ const extractPublicIdFromUrl = (url) => {
 // @route POST /api/products
 // @access Private/Admin
 const createProduct = asyncHandler(async (req, res) => {
+  // Block demo admin from destructive actions
+const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+if (isDemoAdmin) {
+  return res.status(403).json({ 
+    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
+  })
+}
   try {
     const { name, price, brand, category, countInStock, description } = req.body
 
@@ -136,6 +143,13 @@ const getProductById = asyncHandler(async (req, res) => {
 // @route PUT /api/products/:id
 // @access Private/Admin
 const updateProduct = asyncHandler(async (req, res) => {
+  // Block demo admin from destructive actions
+const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+if (isDemoAdmin) {
+  return res.status(403).json({ 
+    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
+  })
+}
   const product = await Product.findById(req.params.id)
 
   if (!product) {
@@ -220,6 +234,13 @@ const updateProduct = asyncHandler(async (req, res) => {
 // @route DELETE /api/products/:id
 // @access Private/Admin
 const deleteProduct = asyncHandler(async (req, res) => {
+  // Block demo admin from destructive actions
+const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+if (isDemoAdmin) {
+  return res.status(403).json({ 
+    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
+  })
+}
   const product = await Product.findById(req.params.id)
 
   if (!product) {

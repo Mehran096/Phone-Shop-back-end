@@ -260,6 +260,7 @@ router.put('/profile', protect, asyncHandler(async (req, res) => {
 // @route   GET /api/users
 // @access  Private/Admin
 router.get('/', protect, admin, asyncHandler(async (req, res) => {
+  
   const pageSize = 10
   const page = Number(req.query.pageNumber) || 1
 
@@ -298,6 +299,13 @@ router.get('/:id', protect, admin, asyncHandler(async (req, res) => {
 // @route PUT /api/users/:id
 // @access Private/Admin
 router.put('/:id', protect, admin, asyncHandler(async (req, res) => {
+  // Block demo admin from destructive actions
+const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+if (isDemoAdmin) {
+  return res.status(403).json({ 
+    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
+  })
+}
   const user = await User.findById(req.params.id)
 
   if (user) {
@@ -323,6 +331,13 @@ router.put('/:id', protect, admin, asyncHandler(async (req, res) => {
 // @route DELETE /api/users/:id
 // @access Private/Admin
 router.delete('/:id', protect, admin, asyncHandler(async (req, res) => {
+  // Block demo admin from destructive actions
+const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+if (isDemoAdmin) {
+  return res.status(403).json({ 
+    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
+  })
+}
   const user = await User.findById(req.params.id)
 
   if (user) {
@@ -339,6 +354,13 @@ router.delete('/:id', protect, admin, asyncHandler(async (req, res) => {
 }))
 
 router.put('/:id/toggleAdmin', protect, admin, async (req, res) => {
+  // Block demo admin from destructive actions
+const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+if (isDemoAdmin) {
+  return res.status(403).json({ 
+    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
+  })
+}
   const user = await User.findById(req.params.id)
   
   if (user) {

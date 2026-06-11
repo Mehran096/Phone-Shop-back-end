@@ -162,6 +162,13 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
 
 // DELETE order -- admin only
 router.delete('/:id', protect, admin, async (req, res) => {
+  // Block demo admin from destructive actions
+const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+if (isDemoAdmin) {
+  return res.status(403).json({ 
+    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
+  })
+}
   const order = await Order.findById(req.params.id)
   
   if (order) {
