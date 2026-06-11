@@ -8,6 +8,7 @@ const reviewSchema = mongoose.Schema({
   comment: { type: String, required: true },
   helpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   images: [String],
+  imagePublicIds: { type: [String], default: [] },
   adminReply: {
     reply: String,
     name: String,

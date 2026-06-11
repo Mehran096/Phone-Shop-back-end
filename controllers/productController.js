@@ -2,6 +2,16 @@ const asyncHandler = require('express-async-handler')
 const Product = require('../models/Product')
 const { cloudinary } = require('../utils/cloudinary')
 
+const extractPublicIdFromUrl = (url) => {
+  try {
+    // Regex grabs everything after /upload/ and before the file extension
+    const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
+    return matches? matches[1] : null
+  } catch {
+    return null
+  }
+}
+
 // @desc Create a product
 // @route POST /api/products
 // @access Private/Admin
@@ -204,17 +214,9 @@ const updateProduct = asyncHandler(async (req, res) => {
   res.json(updatedProduct)
 })
 
-const extractPublicIdFromUrl = (url) => {
-  try {
-    // Regex grabs everything after /upload/ and before the file extension
-    const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
-    return matches? matches[1] : null
-  } catch {
-    return null
-  }
-}
 
-// @desc Delete product
+
+// @desc Delete a product + all Cloudinary images
 // @route DELETE /api/products/:id
 // @access Private/Admin
 const deleteProduct = asyncHandler(async (req, res) => {
@@ -231,7 +233,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
     // Helper to extract public_id from Cloudinary URL
     const extractPublicId = (url) => {
       if (!url) return null
-      // Example: https://res.cloudinary.com/demo/image/upload/v1234/products/img.jpg
+      // Handles: https://res.cloudinary.com/demo/image/upload/v1234/products/img.jpg
       const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
       return matches? matches[1] : null
     }
@@ -245,8 +247,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
     }
 
     // 2. All color images
-    product.colors.forEach(color => {
-      // Use stored publicIds first
+    product.colors?.forEach(color => {
       if (color.imagePublicIds?.length > 0) {
         color.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
       } else {
@@ -258,20 +259,39 @@ const deleteProduct = asyncHandler(async (req, res) => {
       }
     })
 
-    // 3. Delete from Cloudinary
+    // 3. All review images - THIS WAS MISSING
+    product.reviews?.forEach(review => {
+      // Prefer stored publicIds
+      if (review.imagePublicIds?.length > 0) {
+        review.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
+      }
+      // Fallback to URLs
+      if (review.images?.length > 0) {
+        review.images.forEach(url => {
+          const id = extractPublicId(url)
+          if (id) publicIdsToDelete.add(id)
+        })
+      }
+    })
+
+    // Delete from Cloudinary - batch delete max 100 at a time
     const idsArray = [...publicIdsToDelete]
     if (idsArray.length > 0) {
-      console.log('Deleting from Cloudinary:', idsArray)
-      await cloudinary.api.delete_resources(idsArray)
+      // Cloudinary batch limit is 100
+      for (let i = 0; i < idsArray.length; i += 100) {
+        const batch = idsArray.slice(i, i + 100)
+        await cloudinary.api.delete_resources(batch)
+      }
     }
 
-    // 4. Delete from DB
+    // Delete product from DB
     await product.deleteOne()
-    res.json({ message: 'Product removed' })
+    res.json({ message: 'Product and all images removed' })
 
   } catch (error) {
-    console.error('Delete error:', error)
-    res.status(500).json({ message: 'Failed to delete product' })
+    console.error(error)
+    res.status(500)
+    throw new Error('Failed to delete product images from Cloudinary')
   }
 })
 
@@ -279,8 +299,8 @@ const deleteProduct = asyncHandler(async (req, res) => {
 // @route POST /api/products/:id/reviews
 // @access Private
 const createProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment, color, images } = req.body
-  console.log('Backend got images:', images);
+  const { rating, comment, color, images } = req.body // images = array of Cloudinary objects OR URLs
+  console.log('Backend got images:', images)
 
   const product = await Product.findById(req.params.id)
 
@@ -300,15 +320,33 @@ const createProductReview = asyncHandler(async (req, res) => {
       comment,
       user: req.user._id,
       color,
-      images: images || [],
-    } 
+      images: [],
+      imagePublicIds: [], // ADD THIS
+    }
+
+    // Handle images - check if frontend sends URLs or full Cloudinary objects
+    if (images && images.length > 0) {
+      images.forEach(img => {
+        // Case 1: Frontend sends full Cloudinary response { secure_url, public_id }
+        if (typeof img === 'object' && img.secure_url) {
+          review.images.push(img.secure_url)
+          review.imagePublicIds.push(img.public_id)
+        } 
+        // Case 2: Frontend sends just URLs - extract public_id with regex
+        else if (typeof img === 'string') {
+          review.images.push(img)
+          const publicId = extractPublicIdFromUrl(img)
+          if (publicId) review.imagePublicIds.push(publicId)
+        }
+      })
+    }
 
     product.reviews.push(review)
     product.numReviews = product.reviews.length
 
     // FIXED: Calculate rating correctly per color
     const colorReviews = product.reviews.filter(r => r.color === color)
-    product.rating = colorReviews.length > 0 
+    product.rating = colorReviews.length > 0
       ? colorReviews.reduce((acc, item) => acc + item.rating, 0) / colorReviews.length
       : 0
 
@@ -379,116 +417,168 @@ const getProductReviews = asyncHandler(async (req, res) => {
 // @route PUT /api/products/:id/reviews/:reviewId
 // @access Private
 const updateProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment, images } = req.body;
+  const { rating, comment, images } = req.body
 
-  const product = await Product.findById(req.params.id);
+  const product = await Product.findById(req.params.id)
   if (!product) {
-    res.status(404);
-    throw new Error('Product not found');
+    res.status(404)
+    throw new Error('Product not found')
   }
 
-  const review = product.reviews.id(req.params.reviewId);
+  const review = product.reviews.id(req.params.reviewId)
   if (!review) {
-    res.status(404);
-    throw new Error('Review not found');
+    res.status(404)
+    throw new Error('Review not found')
   }
 
   // Check if user owns this review
-  if (review.user.toString()!== req.user._id.toString()) {
-    res.status(401);
-    throw new Error('Not authorized');
+  if (review.user.toString() !== req.user._id.toString()) {
+    res.status(401)
+    throw new Error('Not authorized')
   }
 
   // 1. Find images that were removed and delete from Cloudinary
-  const oldImages = review.images || [];
-  const newImages = images || [];
-  const imagesToDelete = oldImages.filter((img) =>!newImages.includes(img));
+  const oldImages = review.images || []
+  const newImages = images || []
+  const oldPublicIds = review.imagePublicIds || []
 
-  for (const imageUrl of imagesToDelete) {
-    try {
-      // Extract public_id from URL: https://res.cloudinary.com/demo/image/upload/v123/reviews/abc123.jpg
-      // Result: "reviews/abc123"
-      const publicId = imageUrl.split('/').slice(-2).join('/').split('.')[0];
-      await cloudinary.uploader.destroy(publicId);
-      console.log('Deleted from Cloudinary:', publicId);
-    } catch (err) {
-      console.error('Cloudinary delete failed:', err);
-      // Don't throw - still update the review even if Cloudinary delete fails
+  // Get URLs that were removed
+  const imagesToDelete = oldImages.filter(img => !newImages.includes(img))
+  const publicIdsToDelete = []
+
+  if (imagesToDelete.length > 0) {
+    // If we have stored public_ids, use those directly - more reliable
+    imagesToDelete.forEach(url => {
+      const index = oldImages.indexOf(url)
+      // Try to get stored public_id first
+      if (oldPublicIds[index]) {
+        publicIdsToDelete.push(oldPublicIds[index])
+      } else {
+        // Fallback: extract from URL
+        const id = extractPublicIdFromUrl(url)
+        if (id) publicIdsToDelete.push(id)
+      }
+    })
+
+    // Batch delete from Cloudinary
+    if (publicIdsToDelete.length > 0) {
+      try {
+        const result = await cloudinary.api.delete_resources(publicIdsToDelete)
+        console.log('Cloudinary delete result:', result)
+      } catch (err) {
+        console.error('Cloudinary delete failed:', err)
+        // Don't throw - still update review even if Cloudinary fails
+      }
     }
   }
 
   // 2. Update review fields
-  review.rating = Number(rating) || review.rating;
-  review.comment = comment || review.comment;
-  review.images = newImages;
+  review.rating = Number(rating) || review.rating
+  review.comment = comment || review.comment
+  review.images = []
+  review.imagePublicIds = []
 
-  // 3. Recalculate product rating
-  product.rating =
-    product.reviews.reduce((acc, item) => item.rating + acc, 0) /
-    product.reviews.length;
+  // 3. Save new images - handle both objects and URL strings
+  if (newImages.length > 0) {
+    newImages.forEach(img => {
+      // Case 1: Frontend sends Cloudinary object { secure_url, public_id }
+      if (typeof img === 'object' && img.secure_url) {
+        review.images.push(img.secure_url)
+        review.imagePublicIds.push(img.public_id)
+      }
+      // Case 2: Frontend sends just URL string - keep existing public_id if possible
+      else if (typeof img === 'string') {
+        review.images.push(img)
+        // Try to find existing public_id for this URL
+        const oldIndex = oldImages.indexOf(img)
+        if (oldIndex !== -1 && oldPublicIds[oldIndex]) {
+          review.imagePublicIds.push(oldPublicIds[oldIndex])
+        } else {
+          // New image URL - extract public_id
+          const publicId = extractPublicIdFromUrl(img)
+          if (publicId) review.imagePublicIds.push(publicId)
+        }
+      }
+    })
+  }
 
-  await product.save();
-  res.status(200).json({ message: 'Review updated' });
-});
+  // 4. Recalculate product rating for this color
+  const colorReviews = product.reviews.filter(r => r.color === review.color)
+  product.rating = colorReviews.length > 0
+    ? colorReviews.reduce((acc, item) => acc + item.rating, 0) / colorReviews.length
+    : 0
 
-// @desc Delete product review
+  await product.save()
+  res.json({ message: 'Review updated' })
+})
+
+// @desc Delete a product review + its images
 // @route DELETE /api/products/:id/reviews/:reviewId
 // @access Private
 const deleteProductReview = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id);
+  const product = await Product.findById(req.params.id)
 
   if (!product) {
-    res.status(404);
-    throw new Error('Product not found');
+    res.status(404)
+    throw new Error('Product not found')
   }
 
   // Find review by _id from URL params
   const review = product.reviews.find(
     (r) => r._id.toString() === req.params.reviewId
-  );
+  )
 
   if (!review) {
-    res.status(404);
-    throw new Error('Review not found');
+    res.status(404)
+    throw new Error('Review not found')
   }
 
   // Check if user owns the review or is admin
   if (review.user.toString()!== req.user._id.toString() &&!req.user.isAdmin) {
-    res.status(401);
-    throw new Error('Not authorized');
+    res.status(401)
+    throw new Error('Not authorized')
   }
 
   // 1. Delete images from Cloudinary first
-  if (review.images && review.images.length > 0) {
-    for (const imageUrl of review.images) {
-      try {
-        const publicId = imageUrl.split('/').pop().split('.')[0];
-        await cloudinary.uploader.destroy(`phone-products/${publicId}`);
-      } catch (err) {
-        console.error('Cloudinary delete failed:', err);
-        // Don't throw - continue deleting review even if Cloudinary fails
-      }
+  const publicIdsToDelete = []
+
+  // Prefer stored publicIds if you have them
+  if (review.imagePublicIds?.length > 0) {
+    publicIdsToDelete.push(...review.imagePublicIds)
+  }
+  // Fallback: extract from URLs
+  else if (review.images?.length > 0) {
+    review.images.forEach(url => {
+      const id = extractPublicId(url)
+      if (id) publicIdsToDelete.push(id)
+    })
+  }
+
+  if (publicIdsToDelete.length > 0) {
+    try {
+      const result = await cloudinary.api.delete_resources(publicIdsToDelete)
+      console.log('Cloudinary delete result:', result)
+    } catch (err) {
+      console.error('Cloudinary delete failed:', err)
+      // Don't throw - still delete review from DB even if Cloudinary fails
     }
   }
 
-  // 2. Remove the review from array
+  // 2. Remove review from product
   product.reviews = product.reviews.filter(
     (r) => r._id.toString()!== req.params.reviewId
-  );
+  )
 
-  // 3. Recalculate numReviews and rating
-  product.numReviews = product.reviews.length;
+  // 3. Recalculate rating + numReviews
+  product.numReviews = product.reviews.length
   product.rating =
     product.reviews.length > 0
-     ? product.reviews.reduce((acc, item) => item.rating + acc, 0) /
-        product.reviews.length
-      : 0;
+     ? product.reviews.reduce((acc, r) => acc + r.rating, 0) / product.reviews.length
+      : 0
 
-  // 4. SAVE TO DATABASE - YOU'RE MISSING THIS
-  await product.save();
-
-  res.json({ message: 'Review removed' });
-});
+  await product.save()
+  res.json({ message: 'Review removed' })
+})
 
 // @route PUT /api/products/:id/reviews/:reviewId/helpful
 // @access Private
