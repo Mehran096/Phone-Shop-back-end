@@ -231,6 +231,13 @@ router.get('/profile', protect, asyncHandler(async (req, res) => {
 
 //PUT PROFILE
 router.put('/profile', protect, asyncHandler(async (req, res) => {
+  // Block demo admin from destructive actions
+const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+if (isDemoAdmin) {
+  return res.status(403).json({ 
+    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
+  })
+}
   const user = await User.findById(req.user._id)
 
   if (user) {
