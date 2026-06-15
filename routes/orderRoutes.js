@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require ('mongoose')
 const Order = require('../models/orderModel.js');
 const User = require('../models/User');
+const sendEmail = require( '../utils/sendEmail.js')
 const { protect, admin } = require('../middleware/auth.js'); // <-- Add this
 const asyncHandler = require('express-async-handler');
 const router = express.Router();
@@ -15,7 +16,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 // @desc    Create new order
 // @route   POST /api/orders
 // @access  Private
-router.post('/', protect, async (req, res) => { // <-- Add protect here
+router.post('/', protect, async (req, res) => {  
   try {
     const {
       orderItems,
@@ -51,6 +52,38 @@ router.post('/', protect, async (req, res) => { // <-- Add protect here
     });
 
     const createdOrder = await order.save();
+     try {
+      const user = await User.findById(req.user._id) // Get user for name/email
+      
+      await sendEmail({
+        email: user.email,
+        subject: `Order #${createdOrder._id} Received`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
+            <h2>Thanks for your order, ${user.name}!</h2>
+            <p>We've received your order and will process it shortly.</p>
+            
+            <h3>Order Summary</h3>
+            <p><strong>Order ID:</strong> ${createdOrder._id}</p>
+            <p><strong>Total:</strong> $${createdOrder.totalPrice}</p>
+            <p><strong>Payment:</strong> ${createdOrder.paymentMethod}</p>
+            
+            <h3>Shipping To:</h3>
+            <p>${shippingAddress.address}<br/>
+            ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
+            ${shippingAddress.country}</p>
+            
+            <a href="${process.env.CLIENT_URL}/order/${createdOrder._id}" 
+               style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-top:20px">
+              View Order
+            </a>
+          </div>
+        `,
+      })
+      console.log('Order email sent to:', user.email)
+    } catch (error) {
+      console.log('Email failed but order created:', error.message)
+    }
     res.status(201).json(createdOrder);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -84,7 +117,7 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
 // @route PUT /api/orders/:id/pay
 // @access Private
 router.put('/:id/pay', protect, asyncHandler(async (req, res) => {
-  const order = await Order.findById(req.params.id);
+  const order = await Order.findById(req.params.id).populate('user', 'name email');
 
   if (order) {
     order.isPaid = true;
@@ -93,10 +126,41 @@ router.put('/:id/pay', protect, asyncHandler(async (req, res) => {
       id: req.body.id || '',
       status: req.body.status || '',
       update_time: req.body.update_time || Date.now(),
-      email_address: req.body.email_address || '', // Default to empty string
+      email_address: req.body.email_address || '',
     };
 
     const updatedOrder = await order.save();
+    
+    // ADD THIS BLOCK - SEND "PAYMENT CONFIRMED" EMAIL
+    try {
+      await sendEmail({
+        email: order.user.email,
+        subject: `Payment Confirmed - Order #${order._id}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
+            <h2>Payment Received, ${order.user.name}!</h2>
+            <p>Your payment of <strong>$${order.totalPrice}</strong> for Order #${order._id} was successful.</p>
+            
+            <h3>What's Next?</h3>
+            <p>We're now preparing your items for shipment. You'll receive another email with tracking info once it ships.</p>
+            
+            <h3>Order Details</h3>
+            <p><strong>Items:</strong> ${order.orderItems.length}</p>
+            <p><strong>Shipping To:</strong> ${order.shippingAddress.address}, ${order.shippingAddress.city}</p>
+            
+            <a href="${process.env.CLIENT_URL}/order/${order._id}" 
+               style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-top:20px">
+              Track Your Order
+            </a>
+          </div>
+        `,
+      })
+      console.log('Payment email sent to:', order.user.email)
+    } catch (error) {
+      console.log('Payment email failed:', error.message)
+    }
+    // END EMAIL BLOCK
+
     res.json(updatedOrder);
   } else {
     res.status(404)
@@ -106,13 +170,55 @@ router.put('/:id/pay', protect, asyncHandler(async (req, res) => {
 
 // Update order to delivered (admin only)
 router.put('/:id/deliver', protect, admin, async (req, res) => {
-  const order = await Order.findById(req.params.id);
+  const order = await Order.findById(req.params.id).populate('user', 'name email'); // Add .populate()
 
   if (order) {
     order.isDelivered = true;
     order.deliveredAt = Date.now();
 
     const updatedOrder = await order.save();
+    
+    // ADD THIS BLOCK - SEND "ORDER SHIPPED/DELIVERED" EMAIL
+    try {
+      await sendEmail({
+        email: order.user.email,
+        subject: `Order #${order._id} Has Been Shipped`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
+            <h2>Good News, ${order.user.name}!</h2>
+            <p>Your order #${order._id} is on the way.</p>
+            
+            <h3>Shipping Details</h3>
+            <p><strong>Delivered On:</strong> ${new Date(order.deliveredAt).toLocaleDateString()}</p>
+            <p><strong>Shipping Address:</strong><br/>
+            ${order.shippingAddress.address}<br/>
+            ${order.shippingAddress.city}, ${order.shippingAddress.postalCode}<br/>
+            ${order.shippingAddress.country}</p>
+            
+            <h3>Order Items</h3>
+            ${order.orderItems.map(item => `
+              <p>${item.name} x ${item.qty} - $${(item.qty * item.price).toFixed(2)}</p>
+            `).join('')}
+            
+            <p style="margin-top:20px;"><strong>Total: $${order.totalPrice}</strong></p>
+            
+            <a href="${process.env.CLIENT_URL}/order/${order._id}" 
+               style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-top:20px">
+              View Order Details
+            </a>
+            
+            <p style="margin-top:30px;font-size:14px;color:#666">
+              Thanks for shopping with Phone Products!
+            </p>
+          </div>
+        `,
+      })
+      console.log('Delivery email sent to:', order.user.email)
+    } catch (error) {
+      console.log('Delivery email failed:', error.message)
+    }
+    // END EMAIL BLOCK
+
     res.json(updatedOrder);
   } else {
     res.status(404).json({ message: 'Order not found' });
@@ -208,6 +314,36 @@ router.post('/create-checkout-session', protect, async (req, res) => {
       isPaid: false,
     })
 
+    // ADD EMAIL HERE - AFTER ORDER CREATED, BEFORE STRIPE
+    try {
+      const user = await User.findById(req.user._id)
+      
+      await sendEmail({
+        email: user.email,
+        subject: `Order #${order._id} Received - Complete Payment`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
+            <h2>Thanks for your order, ${user.name}!</h2>
+            <p>We've received your order. Complete payment to confirm it.</p>
+            
+            <h3>Order ID: ${order._id}</h3>
+            <p><strong>Total: $${order.totalPrice}</strong></p>
+            
+            <p>You'll be redirected to Stripe to complete payment. Once paid, you'll get a confirmation email.</p>
+            
+            <h3>Shipping To:</h3>
+            <p>${shippingAddress.address}<br/>
+            ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
+            ${shippingAddress.country}</p>
+          </div>
+        `,
+      })
+      console.log('Order created email sent to:', user.email)
+    } catch (error) {
+      console.log('Email failed but order created:', error.message)
+    }
+    // END EMAIL BLOCK
+
     // 2. Create Stripe session using the new order._id
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -235,6 +371,76 @@ router.post('/create-checkout-session', protect, async (req, res) => {
     res.status(500).json({ message: error.message })
   }
 })
+
+//STRIPE WEBHOOK - Must use express.raw() for body
+// router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+//   const sig = req.headers['stripe-signature']
+//   let event
+
+//   try {
+//     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET)
+//   } catch (err) {
+//     console.log('Webhook signature verification failed:', err.message)
+//     return res.status(400).send(`Webhook Error: ${err.message}`)
+//   }
+
+//   // Respond immediately so Stripe doesn't timeout
+//   res.status(200).send('ok')
+
+//   // Handle the event
+//   try {
+//     if (event.type === 'checkout.session.completed') {
+//       const session = event.data.object
+//       // You used client_reference_id in checkout, not metadata
+//       const orderId = session.client_reference_id 
+
+//       const order = await Order.findByIdAndUpdate(
+//         orderId,
+//         {
+//           isPaid: true,
+//           paidAt: Date.now(),
+//           paymentResult: {
+//             id: session.payment_intent,
+//             status: session.payment_status,
+//             update_time: new Date().toISOString(),
+//             email_address: session.customer_email,
+//           },
+//         },
+//         { new: true } // Return updated doc
+//       ).populate('user', 'name email')
+
+//       // SEND "PAYMENT CONFIRMED" EMAIL HERE
+//       if (order) {
+//          console.log('Order found. User email:', order.user?.email)
+//         try {
+//           await sendEmail({
+//             email: order.user.email,
+//             subject: `Payment Confirmed - Order #${order._id}`,
+//             html: `
+//               <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
+//                 <h2>Payment Received, ${order.user.name}!</h2>
+//                 <p>Your payment of <strong>$${order.totalPrice}</strong> for Order #${order._id} was successful.</p>
+                
+//                 <h3>What's Next?</h3>
+//                 <p>We're now preparing your items for shipment. You'll receive another email when it ships.</p>
+                
+//                 <a href="${process.env.CLIENT_URL}/order/${order._id}" 
+//                    style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-top:20px">
+//                   Track Your Order
+//                 </a>
+//               </div>
+//             `,
+//           })
+//           console.log('Payment confirmation email sent:', order.user.email)
+//         } catch (emailError) {
+//           console.log('Payment email failed:', emailError.message)
+//         }
+//       }
+//     }
+//   } catch (err) {
+//     console.error('Webhook DB update failed:', err)
+//   }
+// })
 
 
 router.get('/verify-session/:sessionId', protect, async (req, res) => {

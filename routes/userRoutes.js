@@ -111,64 +111,17 @@ router.post('/cart', protect, asyncHandler(async (req, res) => {
   }
 }))
 
- // @desc    Auth user & get token
-// @route   POST /api/users/login
-// @access  Public
-// router.post('/login', asyncHandler(async (req, res) => {
-//   const { email, password } = req.body
-//   const user = await User.findOne({ email })
-
-//   if (user && (await user.matchPassword(password))) {
-//     res.json({
-//       _id: user._id,
-//       name: user.name,
-//       email: user.email,
-//       isAdmin: user.isAdmin,
-//       token: generateToken(user._id), // ← THIS LINE IS MISSING
-//     })
-//   } else {
-//     res.status(401)
-//     throw new Error('Invalid email or password')
-//   }
-// }))
-
   
-
 
 
 // Example admin route
 router.get('/admin/users', protect, admin, async (req, res) => {
   const users = await User.find({});
   res.json(users);
-  // const user = await User.create({ name, email, password });
-
-  // if (user) {
-  //   generateToken(res, user._id);
-  //   res.status(201).json({
-  //     _id: user._id,
-  //     name: user.name,
-  //     email: user.email,
-  //     isAdmin: user.isAdmin,
-  //   });
-  // } else {
-  //   res.status(400).json({ message: 'Invalid user data' });
-  // }
+   
 });
 
-//   const user = await User.create({ name, email, password });
-
-//   if (user) {
-//     generateToken(res, user._id);
-//     res.status(201).json({
-//       _id: user._id,
-//       name: user.name,
-//       email: user.email,
-//       isAdmin: user.isAdmin,
-//     });
-//   } else {
-//     res.status(400).json({ message: 'Invalid user data' });
-//   }
-// });
+ 
 
 // @desc Auth user & get token
 // @route POST /api/users/auth
@@ -262,6 +215,18 @@ if (isDemoAdmin) {
     throw new Error('User not found')
   }
 }))
+
+// @desc    Get user wishlist
+// @route   GET /api/users/wishlist
+// @access  Private
+router.get('/wishlist', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).populate('wishlist')
+    res.json(user.wishlist)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+})
 
 // @desc    Get all users
 // @route   GET /api/users
@@ -390,6 +355,49 @@ if (isDemoAdmin) {
     throw new Error('User not found')
   }
 })
+
+
+
+// @desc    Add product to wishlist
+// @route   POST /api/users/wishlist/:id
+// @access  Private
+router.post('/wishlist/:id', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+    
+    if (user.wishlist.includes(req.params.id)) {
+      return res.status(400).json({ message: 'Product already in wishlist' })
+    }
+
+    user.wishlist.push(req.params.id)
+    await user.save()
+    
+    const updatedUser = await User.findById(req.user._id).populate('wishlist')
+    res.json(updatedUser.wishlist)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+})
+
+// @desc    Remove product from wishlist
+// @route   DELETE /api/users/wishlist/:id
+// @access  Private
+router.delete('/wishlist/:id', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+    user.wishlist = user.wishlist.filter(
+      (item) => item.toString() !== req.params.id
+    )
+    await user.save()
+    
+    const updatedUser = await User.findById(req.user._id).populate('wishlist')
+    res.json(updatedUser.wishlist)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+})
+
+
 
 
 router.post('/forgotpassword', forgotPassword)

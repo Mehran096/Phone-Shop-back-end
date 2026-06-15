@@ -11,6 +11,10 @@ const userSchema = mongoose.Schema({
     type: Array,
     default: []
   },
+  wishlist: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product'
+  }],
   // Added for password reset
   resetPasswordToken: String,
   resetPasswordExpire: Date,
