@@ -41,11 +41,19 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
   res.status(200).send('ok')
 
   try {
+    // 1. PAYMENT SUCCESS
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object
       const orderId = session.metadata.orderId
       
       console.log('Webhook orderId from metadata:', orderId)
+
+      // Idempotency check - skip if already paid
+      const existingOrder = await Order.findById(orderId)
+      if (existingOrder?.isPaid) {
+        console.log('Order already paid, skipping duplicate webhook:', orderId)
+        return
+      }
 
       const order = await Order.findByIdAndUpdate(orderId, {
         isPaid: true,
@@ -60,11 +68,10 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
         taxPrice: (session.total_details?.amount_tax || 0) / 100,
         shippingPrice: (session.total_details?.amount_shipping || 0) / 100,
         totalPrice: (session.amount_total || 0) / 100,
-      }, { new: true }).populate('user', 'name email')
+      }, { returnDocument: 'after' }).populate('user', 'name email')
 
       console.log('Order updated:', order?._id)
 
-      // SEND "PAYMENT CONFIRMED" EMAIL HERE
       if (order && order.user?.email) {
         console.log('Order found. User email:', order.user.email)
         try {
@@ -75,11 +82,9 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
               <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
                 <h2>Payment Received, ${order.user.name}</h2>
                 <p>Your payment of <strong>$${order.totalPrice}</strong> for Order #${order._id} was successful.</p>
-                
                 <h3>What's Next?</h3>
                 <p>We're now preparing your items for shipment. You'll receive another email when it ships.</p>
-                
-                <a href="${process.env.FRONTEND_URL}/order/${order._id}"
+                <a href="${process.env.CLIENT_URL}/order/${order._id}"
                    style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:16px">
                    Track Your Order
                 </a>
@@ -90,12 +95,81 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
         } catch (emailError) {
           console.log('Payment email failed:', emailError.message)
         }
-      } else {
-        console.log('Order or user email missing. OrderID:', orderId, 'Order:', order)
       }
     }
+
+    // 2. PAYMENT FAILED
+    else if (event.type === 'checkout.session.async_payment_failed') {
+      const session = event.data.object
+      const orderId = session.metadata.orderId
+      
+      console.log('Payment failed for orderId:', orderId)
+      
+      const order = await Order.findById(orderId).populate('user', 'name email')
+      
+      if (order && order.user?.email) {
+        try {
+          await sendEmail({
+            email: order.user.email,
+            subject: `Payment Failed - Order #${order._id}`,
+            html: `
+              <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
+                <h2>Payment Failed</h2>
+                <p>Hi ${order.user.name}, your payment for Order #${order._id} didn't go through.</p>
+                <p>This can happen if your bank declined the charge or there were insufficient funds.</p>
+                <a href="${process.env.CLIENT_URL}/order/${order._id}"
+                   style="display:inline-block;background:#dc2626;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:16px">
+                   Try Payment Again
+                </a>
+              </div>
+            `
+          })
+          console.log('Payment failed email sent:', order.user.email)
+        } catch (emailError) {
+          console.log('Failed payment email error:', emailError.message)
+        }
+      }
+    }
+
+    // 3. REFUND PROCESSED
+    else if (event.type === 'charge.refunded') {
+      const charge = event.data.object
+      const paymentIntentId = charge.payment_intent
+      
+      console.log('Refund for payment_intent:', paymentIntentId)
+      
+      const order = await Order.findOne({ 'paymentResult.id': paymentIntentId }).populate('user', 'name email')
+      
+      if (order) {
+        order.isRefunded = true
+        order.refundedAt = Date.now()
+        await order.save()
+        
+        if (order.user?.email) {
+          try {
+            await sendEmail({
+              email: order.user.email,
+              subject: `Refund Processed - Order #${order._id}`,
+              html: `
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
+                  <h2>Refund Processed</h2>
+                  <p>Hi ${order.user.name}, your refund of <strong>$${(charge.amount_refunded / 100).toFixed(2)}</strong> for Order #${order._id} has been processed.</p>
+                  <p>It may take 5-10 business days to appear on your statement.</p>
+                </div>
+              `
+            })
+            console.log('Refund email sent:', order.user.email)
+          } catch (emailError) {
+            console.log('Refund email error:', emailError.message)
+          }
+        }
+      } else {
+        console.log('Order not found for refunded payment_intent:', paymentIntentId)
+      }
+    }
+
   } catch (err) {
-    console.error('Webhook DB update failed:', err)
+    console.error('Webhook handler failed:', err)
     // Don't send res here - Stripe already got 200
   }
 })
