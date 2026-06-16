@@ -102,7 +102,7 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
 
 // Middleware
 app.use(cors({
-  origin: ['https://phone-shop-front-end-woad.vercel.app', 'http://localhost:5173'],
+  origin: ['https://phone-store.asia','https://phone-shop-front-end-woad.vercel.app', 'http://localhost:5173'],
    credentials: true  
 }));
 
