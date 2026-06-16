@@ -73,7 +73,7 @@ router.post('/', protect, async (req, res) => {
             ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
             ${shippingAddress.country}</p>
             
-            <a href="${process.env.CLIENT_URL}/order/${createdOrder._id}" 
+            <a href="${process.env.FRONTEND_URL}/order/${createdOrder._id}" 
                style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-top:20px">
               View Order
             </a>
@@ -148,7 +148,7 @@ router.put('/:id/pay', protect, asyncHandler(async (req, res) => {
             <p><strong>Items:</strong> ${order.orderItems.length}</p>
             <p><strong>Shipping To:</strong> ${order.shippingAddress.address}, ${order.shippingAddress.city}</p>
             
-            <a href="${process.env.CLIENT_URL}/order/${order._id}" 
+            <a href="${process.env.FRONTEND_URL}/order/${order._id}" 
                style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-top:20px">
               Track Your Order
             </a>
@@ -202,7 +202,7 @@ router.put('/:id/deliver', protect, admin, async (req, res) => {
             
             <p style="margin-top:20px;"><strong>Total: $${order.totalPrice}</strong></p>
             
-            <a href="${process.env.CLIENT_URL}/order/${order._id}" 
+            <a href="${process.env.FRONTEND_URL}/order/${order._id}" 
                style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-top:20px">
               View Order Details
             </a>
@@ -424,7 +424,7 @@ router.post('/create-checkout-session', protect, async (req, res) => {
 //                 <h3>What's Next?</h3>
 //                 <p>We're now preparing your items for shipment. You'll receive another email when it ships.</p>
                 
-//                 <a href="${process.env.CLIENT_URL}/order/${order._id}" 
+//                 <a href="${process.env.FRONTEND_URL}/order/${order._id}" 
 //                    style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-top:20px">
 //                   Track Your Order
 //                 </a>
