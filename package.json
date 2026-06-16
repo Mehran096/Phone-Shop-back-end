@@ -27,6 +27,7 @@
       "multer-storage-cloudinary": "^4.0.0",
       "nodemailer": "^8.0.10",
       "react-router-dom": "^7.15.0",
+      "resend": "^6.12.4",
       "stripe": "^22.1.1"
    },
    "devDependencies": {
