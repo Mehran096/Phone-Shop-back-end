@@ -84,7 +84,7 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
                 <p>Your payment of <strong>$${order.totalPrice}</strong> for Order #${order._id} was successful.</p>
                 <h3>What's Next?</h3>
                 <p>We're now preparing your items for shipment. You'll receive another email when it ships.</p>
-                <a href="${process.env.CLIENT_URL}/order/${order._id}"
+                <a href="${process.env.FRONTEND_URL}/order/${order._id}"
                    style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:16px">
                    Track Your Order
                 </a>
@@ -117,7 +117,7 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
                 <h2>Payment Failed</h2>
                 <p>Hi ${order.user.name}, your payment for Order #${order._id} didn't go through.</p>
                 <p>This can happen if your bank declined the charge or there were insufficient funds.</p>
-                <a href="${process.env.CLIENT_URL}/order/${order._id}"
+                <a href="${process.env.FRONTEND_URL}/order/${order._id}"
                    style="display:inline-block;background:#dc2626;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:16px">
                    Try Payment Again
                 </a>
