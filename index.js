@@ -27,6 +27,7 @@ const app = express();
 // 1. Put webhook route BEFORE express.json()
 //app.use('/api/orders/webhook', express.raw({type: 'application/json'}), orderRoutes)
 app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  //console.log('>>> WEBHOOK HIT:', new Date().toISOString(), 'Event:', req.body.type, 'ID:', req.body.id, 'Order:', req.body.data.object.metadata?.orderId)
   const sig = req.headers['stripe-signature']
   let event
 
@@ -48,14 +49,14 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
       
       console.log('Webhook orderId from metadata:', orderId)
 
-      // Idempotency check - skip if already paid
-      const existingOrder = await Order.findById(orderId)
-      if (existingOrder?.isPaid) {
-        console.log('Order already paid, skipping duplicate webhook:', orderId)
-        return
-      }
+      // Improved idempotency check
+  const existingOrder = await Order.findById(orderId)
+  if (existingOrder?.isPaid && existingOrder?.paymentResult?.id) {
+    console.log('Order already paid with paymentResult, skipping duplicate webhook:', orderId)
+    return
+  }
 
-      const order = await Order.findByIdAndUpdate(orderId, {
+      const order = await Order.findByIdAndUpdate({ _id: orderId, isPaid: false }, {
         isPaid: true,
         paidAt: Date.now(),
         paymentResult: {
@@ -70,7 +71,13 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
         totalPrice: (session.amount_total || 0) / 100,
       }, { returnDocument: 'after' }).populate('user', 'name email')
 
-      console.log('Order updated:', order?._id)
+      // If order is null, another webhook already paid it
+if (!order) {
+  console.log('Duplicate webhook blocked for order:', orderId)
+  return res.json({ received: true })
+}
+
+      console.log('paymentResult Order updated:', order?.paymentResult)
 
       if (order && order.user?.email) {
         console.log('Order found. User email:', order.user.email)
@@ -99,7 +106,7 @@ app.post('/api/orders/webhook', express.raw({ type: 'application/json' }), async
     }
 
     // 2. PAYMENT FAILED
-    else if (event.type === 'checkout.session.async_payment_failed') {
+    else if (event.type === 'checkout.session.async_payment_failed' || event.type === 'payment_intent.payment_failed' ) {
       const session = event.data.object
       const orderId = session.metadata.orderId
       

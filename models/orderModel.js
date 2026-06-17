@@ -30,6 +30,12 @@ const orderSchema = mongoose.Schema(
       type: String,
       required: true,
     },
+    paymentResult: {
+    id: { type: String },
+    status: { type: String },
+    update_time: { type: String },
+    email_address: { type: String },
+  },
     itemsPrice: { type: Number, required: true, default: 0.0 },
     taxPrice: { type: Number, required: true, default: 0.0 },
     shippingPrice: { type: Number, required: true, default: 0.0 },

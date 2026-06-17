@@ -1,8 +1,8 @@
-const express = require('express'); 
-const mongoose = require ('mongoose')
+const express = require('express');
+const mongoose = require('mongoose')
 const Order = require('../models/orderModel.js');
 const User = require('../models/User');
-const sendEmail = require( '../utils/sendEmail.js')
+const sendEmail = require('../utils/sendEmail.js')
 const { protect, admin } = require('../middleware/auth.js'); // <-- Add this
 const asyncHandler = require('express-async-handler');
 const router = express.Router();
@@ -16,7 +16,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 // @desc    Create new order
 // @route   POST /api/orders
 // @access  Private
-router.post('/', protect, async (req, res) => {  
+router.post('/', protect, async (req, res) => {
   try {
     const {
       orderItems,
@@ -52,9 +52,9 @@ router.post('/', protect, async (req, res) => {
     });
 
     const createdOrder = await order.save();
-     try {
+    try {
       const user = await User.findById(req.user._id) // Get user for name/email
-      
+
       await sendEmail({
         email: user.email,
         subject: `Order #${createdOrder._id} Received`,
@@ -130,7 +130,7 @@ router.put('/:id/pay', protect, asyncHandler(async (req, res) => {
     };
 
     const updatedOrder = await order.save();
-    
+
     // ADD THIS BLOCK - SEND "PAYMENT CONFIRMED" EMAIL
     try {
       await sendEmail({
@@ -177,7 +177,7 @@ router.put('/:id/deliver', protect, admin, async (req, res) => {
     order.deliveredAt = Date.now();
 
     const updatedOrder = await order.save();
-    
+
     // ADD THIS BLOCK - SEND "ORDER SHIPPED/DELIVERED" EMAIL
     try {
       await sendEmail({
@@ -237,12 +237,12 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
   if (keyword) {
     // Check if keyword is valid ObjectId for _id search
     const isValidObjectId = mongoose.Types.ObjectId.isValid(keyword)
-    
+
     // Find users matching the keyword first
     const users = await User.find({
       name: { $regex: keyword, $options: 'i' }
     }).select('_id')
-    
+
     const userIds = users.map(user => user._id)
 
     query = {
@@ -256,7 +256,7 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
   }
 
   const count = await Order.countDocuments(query)
-  
+
   const orders = await Order.find(query)
     .populate('user', 'id name email')
     .limit(pageSize)
@@ -269,14 +269,14 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
 // DELETE order -- admin only
 router.delete('/:id', protect, admin, async (req, res) => {
   // Block demo admin from destructive actions
-const isDemoAdmin = req.user.email === 'demo@phonestore.com'
-if (isDemoAdmin) {
-  return res.status(403).json({ 
-    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
-  })
-}
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+  if (isDemoAdmin) {
+    return res.status(403).json({
+      message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
+    })
+  }
   const order = await Order.findById(req.params.id)
-  
+
   if (order) {
     await order.deleteOne()
     res.json({ message: 'Order removed' })
@@ -284,12 +284,12 @@ if (isDemoAdmin) {
     res.status(404).json({ message: 'Order not found' })
   }
 
-//   if (order && order.isDelivered) {
-//   await order.deleteOne()
-//   res.json({ message: 'Delivered order removed' })
-// } else {
-//   res.status(400).json({ message: 'Only delivered orders can be deleted' })
-// }
+  //   if (order && order.isDelivered) {
+  //   await order.deleteOne()
+  //   res.json({ message: 'Delivered order removed' })
+  // } else {
+  //   res.status(400).json({ message: 'Only delivered orders can be deleted' })
+  // }
 })
 
 // Stripe payment testing
@@ -317,7 +317,7 @@ router.post('/create-checkout-session', protect, async (req, res) => {
     // ADD EMAIL HERE - AFTER ORDER CREATED, BEFORE STRIPE
     try {
       const user = await User.findById(req.user._id)
-      
+
       await sendEmail({
         email: user.email,
         subject: `Order #${order._id} Received - Complete Payment`,
@@ -350,7 +350,7 @@ router.post('/create-checkout-session', protect, async (req, res) => {
       line_items: order.orderItems.map(item => ({
         price_data: {
           currency: 'usd',
-          product_data: { 
+          product_data: {
             name: item.name,
             images: [item.image], // Optional: shows product image on Stripe
           },
@@ -363,6 +363,11 @@ router.post('/create-checkout-session', protect, async (req, res) => {
       cancel_url: `${process.env.FRONTEND_URL}/cart`,
       metadata: { orderId: order._id.toString() },
       customer_email: req.user.email,
+      payment_intent_data: {
+        metadata: {
+          orderId: order._id.toString()
+        }
+      }
     })
 
     res.json({ url: session.url })
@@ -420,10 +425,10 @@ router.post('/create-checkout-session', protect, async (req, res) => {
 //               <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
 //                 <h2>Payment Received, ${order.user.name}!</h2>
 //                 <p>Your payment of <strong>$${order.totalPrice}</strong> for Order #${order._id} was successful.</p>
-                
+
 //                 <h3>What's Next?</h3>
 //                 <p>We're now preparing your items for shipment. You'll receive another email when it ships.</p>
-                
+
 //                 <a href="${process.env.FRONTEND_URL}/order/${order._id}" 
 //                    style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;margin-top:20px">
 //                   Track Your Order
@@ -446,19 +451,19 @@ router.post('/create-checkout-session', protect, async (req, res) => {
 router.get('/verify-session/:sessionId', protect, async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.retrieve(req.params.sessionId)
-    
+
     if (session.payment_status === 'paid') {
       const order = await Order.findById(session.metadata.orderId)
-      
+
       if (!order) {  // Fixed typo: was "lorder"
         return res.status(404).json({ message: 'Order not found' })
       }
-      
+
       // Prevent double updates
       if (order.isPaid) {
         return res.json(order)
       }
-      
+
       order.isPaid = true
       order.paidAt = Date.now()
       order.paymentResult = {
@@ -468,10 +473,10 @@ router.get('/verify-session/:sessionId', protect, async (req, res) => {
         email_address: session.customer_email,
       }
       await order.save()
-      
+
       // Clear user's cart in MongoDB after successful payment
       await User.findByIdAndUpdate(order.user, { cartItems: [] })
-      
+
       res.json(order)
     } else {
       res.status(400).json({ message: 'Order not paid' })
