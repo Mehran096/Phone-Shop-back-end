@@ -94,6 +94,11 @@ router.post('/', protect, asyncHandler(async (req, res) => {
 
   const createdOrder = await order.save()
 
+  
+if (paymentMethod === 'COD') {
+  await User.findByIdAndUpdate(req.user._id, { cartItems: [] })
+}
+
   // 5. Send "Order Received" email
   try {
     const user = await User.findById(req.user._id)
@@ -521,7 +526,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
           <h3>Order ID: ${order._id.toString().slice(-6)}</h3>
           <p><strong>Items Total: ${order.currency} ${itemsPrice}</strong></p>
           <p><strong>Shipping:</strong> Free</p>
-          <p><strong>Tax:</strong> Included</p>
+          <p><strong>Tax:</strong>Not Included</p>
           <p><strong>Amount to Pay: ${order.currency} ${itemsPrice}</strong></p>
           
           <p>You'll be redirected to Stripe to complete payment. Once paid, you'll get a confirmation email.</p>

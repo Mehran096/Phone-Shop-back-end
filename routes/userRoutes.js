@@ -111,6 +111,13 @@ router.post('/cart', protect, asyncHandler(async (req, res) => {
   }
 }))
 
+router.put('/cart', protect, asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id)
+  user.cartItems = req.body.cartItems || []
+  await user.save()
+  res.json({ cartItems: user.cartItems })
+}))
+
   
 
 

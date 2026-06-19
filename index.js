@@ -165,24 +165,24 @@ app.post('/api/orders/webhook', express.raw({type: 'application/json'}), async (
       await order.save()
       
       if (order.user?.email) {
-        try {
-          await sendEmail({
-            email: order.user.email,
-            subject: `Refund Processed - Order #${order._id.toString().slice(-6)}`,
-            html: `
-              <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
-                <h2>Refund Processed</h2>
-                <p>Hi ${order.user.name}, your refund of <strong>${order.currency} ${(charge.amount_refunded / 100).toFixed(2)}</strong> for Order #${order._id.toString().slice(-6)} was processed.</p>
-                <p>It may take 5-10 business days to appear on your statement.</p>
-                <p><strong>Reason:</strong> ${charge.refunds.data[0]?.reason || 'Requested by customer'}</p>
-              </div>
-            `,
-          })
-          console.log('Refund email sent:', order.user.email)
-        } catch (emailError) {
-          console.log('Refund email error:', emailError.message)
-        }
-      }
+  try {
+    await sendEmail({
+      email: order.user.email,
+      subject: `Refund Processed - Order #${order._id.toString().slice(-6)}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
+          <h2>Refund Processed</h2>
+          <p>Hi ${order.user.name}, your refund of <strong>${order.currency} ${(charge.amount_refunded / 100).toFixed(2)}</strong> has been processed.</p>
+          <p>It may take 5-10 business days to appear on your statement.</p>
+          <p><strong>Order ID:</strong> ${order._id}</p>
+        </div>
+      `
+    })
+    console.log('Refund email sent:', order.user.email)
+  } catch (emailError) {
+    console.log('Refund email error:', emailError.message)
+  }
+}
     } else {
       console.log('Order not found for refunded payment_intent:', paymentIntentId)
     }
