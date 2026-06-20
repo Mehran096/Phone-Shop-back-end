@@ -11,10 +11,21 @@ const userSchema = mongoose.Schema({
     type: Array,
     default: []
   },
-  wishlist: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Product'
-  }],
+  wishlist: [
+    {
+      product: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        ref: 'Product'
+      },
+      name: { type: String, required: true },
+      image: { type: String, required: true },
+      price: { type: Number, required: true },
+      color: { type: String, required: true },
+      countInStock: { type: Number, required: true, default: 0 }, // Add this
+    qty: { type: Number, required: true, default: 1 }, // Add this
+    }
+  ],
   // Added for password reset
   resetPasswordToken: String,
   resetPasswordExpire: Date,

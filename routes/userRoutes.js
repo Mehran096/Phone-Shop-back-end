@@ -8,8 +8,15 @@ const { admin } = require('../middleware/adminMiddleware');
 const { 
    
   forgotPassword, 
-  resetPassword 
+  resetPassword,
+   
 } = require('../controllers/userController')
+const {
+  getWishlist,
+  addToWishlist,
+  removeFromWishlist,
+  updateWishlistItemQty,
+} = require('../controllers/wishlistController') // NEW IMPORT
 const asyncHandler = require('express-async-handler');
  
 // Generate JWT
@@ -20,6 +27,19 @@ const generateToken = (id) => {
 };
  
  
+
+//  router.delete('/fix-wishlist', protect, asyncHandler(async (req, res) => {
+//   const user = await User.findById(req.user._id)
+  
+//   if (user) {
+//     user.wishlist = []
+//     await user.save()
+//     res.json({ message: 'Wishlist cleared' })
+//   } else {
+//     res.status(404)
+//     throw new Error('User not found')
+//   }
+// }))
 
 // @desc    Register user
 // @route   POST /api/users
@@ -223,17 +243,13 @@ if (isDemoAdmin) {
   }
 }))
 
-// @desc    Get user wishlist
-// @route   GET /api/users/wishlist
-// @access  Private
-router.get('/wishlist', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id).populate('wishlist')
-    res.json(user.wishlist)
-  } catch (error) {
-    res.status(500).json({ message: error.message })
-  }
-})
+
+
+router.route('/wishlist')
+  .get(protect, getWishlist)
+  .post(protect, addToWishlist)
+
+router.route('/wishlist/:id').delete(protect, removeFromWishlist).put(protect, updateWishlistItemQty)
 
 // @desc    Get all users
 // @route   GET /api/users
@@ -362,50 +378,8 @@ if (isDemoAdmin) {
     throw new Error('User not found')
   }
 })
-
-
-
-// @desc    Add product to wishlist
-// @route   POST /api/users/wishlist/:id
-// @access  Private
-router.post('/wishlist/:id', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id)
-    
-    if (user.wishlist.includes(req.params.id)) {
-      return res.status(400).json({ message: 'Product already in wishlist' })
-    }
-
-    user.wishlist.push(req.params.id)
-    await user.save()
-    
-    const updatedUser = await User.findById(req.user._id).populate('wishlist')
-    res.json(updatedUser.wishlist)
-  } catch (error) {
-    res.status(500).json({ message: error.message })
-  }
-})
-
-// @desc    Remove product from wishlist
-// @route   DELETE /api/users/wishlist/:id
-// @access  Private
-router.delete('/wishlist/:id', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id)
-    user.wishlist = user.wishlist.filter(
-      (item) => item.toString() !== req.params.id
-    )
-    await user.save()
-    
-    const updatedUser = await User.findById(req.user._id).populate('wishlist')
-    res.json(updatedUser.wishlist)
-  } catch (error) {
-    res.status(500).json({ message: error.message })
-  }
-})
-
-
-
+ 
+  
 
 router.post('/forgotpassword', forgotPassword)
 router.put('/resetpassword/:resettoken', resetPassword)

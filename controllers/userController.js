@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler')
 const User = require('../models/User')
+const Product = require ('../models/Product')
  
 const generateToken = require('../utils/generateToken')
 const crypto = require('crypto')
@@ -134,6 +135,8 @@ const resetPassword = asyncHandler(async (req, res) => {
 })
 
  
+  
+ 
 
 module.exports = { 
   authUser, 
@@ -141,5 +144,6 @@ module.exports = {
   getUserCart, 
   saveUserCart,
    forgotPassword, 
-  resetPassword 
+  resetPassword,
+  
 }
