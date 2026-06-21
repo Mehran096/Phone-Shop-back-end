@@ -10,6 +10,7 @@ const asyncHandler = require('express-async-handler');
 const router = express.Router();
 //import Stripe from 'stripe'
 const Stripe = require('stripe');
+const axios = require('axios');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
 
@@ -19,46 +20,44 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 // @route POST /api/orders
 // @access Private
 router.post('/', protect, asyncHandler(async (req, res) => {
-  const {
-    orderItems,
-    shippingAddress,
+  const { 
+    orderItems, 
+    shippingAddress, 
     paymentMethod,
-    shippingMethod
   } = req.body
 
-  if (!orderItems || orderItems.length === 0) {
+  if (orderItems && orderItems.length === 0) {
     res.status(400)
     throw new Error('No order items')
   }
 
-  // 1. COD only available in Pakistan
-  if (paymentMethod === 'COD') {
-    const country = shippingAddress.country?.toLowerCase().trim()
-    const allowedCountries = ['pakistan', 'pk']
-    
-    if (!allowedCountries.includes(country)) {
-      res.status(400)
-      throw new Error('COD only available in Pakistan')
-    }
+  // 1. COD country check - must be Pakistan
+  const allowedCountries = ['Pakistan']
+  const country = shippingAddress.country
+  if (!allowedCountries.includes(country)) {
+    res.status(400)
+    throw new Error('COD only available in Pakistan')
   }
 
-
-  // 2. This route is COD ONLY. Reject Stripe here.
-  if (paymentMethod!== 'COD') {
+  // 2. This route is only for COD
+  if (paymentMethod !== 'COD') {
     res.status(400)
     throw new Error('Use /api/orders/create-checkout-session for online payments')
   }
 
-  // 3. Get real product prices from DB
-  const itemsFromDB = await Product.find({
-    _id: { $in: orderItems.map((x) => x.product) },
+  // 3. Get real product prices from DB - FIXED for duplicate product IDs
+  const uniqueProductIds = [...new Set(orderItems.map((x) => x.product))]
+  const itemsFromDB = await Product.find({ 
+    _id: { $in: uniqueProductIds }, 
   })
 
-  if (itemsFromDB.length!== orderItems.length) {
+  // Check if all unique product IDs exist
+  if (itemsFromDB.length !== uniqueProductIds.length) {
     res.status(404)
-    throw new Error('Product not found')
+    throw new Error('One or more products not found')
   }
 
+  // Map DB prices to order items + include color
   const dbOrderItems = orderItems.map((itemFromClient) => {
     const matchingItemFromDB = itemsFromDB.find(
       (itemFromDB) => itemFromDB._id.toString() === itemFromClient.product
@@ -66,24 +65,35 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     if (!matchingItemFromDB) {
       throw new Error(`Product not found: ${itemFromClient.product}`)
     }
+
+    // Find color variant for correct image
+  const colorVariant = matchingItemFromDB.colors.find(
+    (c) => c.name === itemFromClient.color
+  )
+  if (!colorVariant ||!colorVariant.images?.length) {
+    throw new Error(`Color ${itemFromClient.color} not found or has no images`)
+  }
+
     return {
-     ...itemFromClient,
+      name: matchingItemFromDB.name,
+      qty: itemFromClient.qty,
+      image: colorVariant.images[0],
+      price: matchingItemFromDB.price, // Always use DB price
+      color: itemFromClient.color, // <-- CRITICAL: Save color
+      hexCode: itemFromClient.hexCode,
       product: itemFromClient.product,
-      price: matchingItemFromDB.price,
-      _id: undefined,
     }
   })
 
   // 4. Calculate everything server-side
-  const { itemsPrice, taxPrice, shippingPrice, totalPrice, currency } =
+  const { itemsPrice, taxPrice, shippingPrice, totalPrice, currency } = 
     calcPrices(dbOrderItems, shippingAddress, paymentMethod)
 
   const order = new Order({
     orderItems: dbOrderItems,
     user: req.user._id,
     shippingAddress,
-    shippingMethod,
-    paymentMethod: 'COD',
+    paymentMethod, // <-- Use variable, not hard-coded
     itemsPrice,
     taxPrice,
     shippingPrice,
@@ -94,10 +104,9 @@ router.post('/', protect, asyncHandler(async (req, res) => {
 
   const createdOrder = await order.save()
 
-  
-if (paymentMethod === 'COD') {
-  await User.findByIdAndUpdate(req.user._id, { cartItems: [] })
-}
+  if (paymentMethod === 'COD') {
+    await User.findByIdAndUpdate(req.user._id, { cartItems: [] })
+  }
 
   // 5. Send "Order Received" email
   try {
@@ -109,13 +118,12 @@ if (paymentMethod === 'COD') {
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
           <h2>Thanks for your order, ${user.name}</h2>
           <p>We've received your COD order and will process it shortly.</p>
-
+          
           <h3>Order Summary</h3>
           <p><strong>Order ID:</strong> ${createdOrder._id}</p>
           <p><strong>Total:</strong> ${createdOrder.currency} ${createdOrder.totalPrice}</p>
           <p><strong>Payment:</strong> ${createdOrder.paymentMethod}</p>
-          ${createdOrder.shippingMethod? `<p><strong>Shipping:</strong> ${createdOrder.shippingMethod}</p>` : ''}
-
+           
           <h3>Shipping To:</h3>
           <p>
             <strong>Phone:</strong> ${shippingAddress.phone}<br/>
@@ -125,11 +133,11 @@ if (paymentMethod === 'COD') {
           </p>
 
           <a href="${process.env.FRONTEND_URL}/order/${createdOrder._id}"
-             style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:16px">
-             View Order
+             style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:20px">
+            View Order
           </a>
         </div>
-      `,
+      `
     })
     console.log('Order email sent to:', user.email)
   } catch (error) {
@@ -233,7 +241,7 @@ router.put('/:id/pay', protect, asyncHandler(async (req, res) => {
 // @desc    Update order to shipped - Admin adds tracking
 // @route   PUT /api/orders/:id/deliver
 // @access  Private/Admin
-router.put('/:id/deliver', protect, admin, asyncHandler(async (req, res) => {
+router.put('/:id/markasShipped', protect, admin, asyncHandler(async (req, res) => {
   const { trackingNumber, carrier } = req.body
 
   const order = await Order.findById(req.params.id).populate('user', 'name email')
@@ -377,6 +385,45 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
     console.log('Delivery email failed:', error.message)
   }
 
+  // 👇 WHATSAPP CODE START 👇
+// if (order.shippingAddress?.phone) {
+//   const phoneNumberId = process.env.WHATSAPP_PHONE_ID; // 1148062235058210
+//   const token = process.env.WHATSAPP_TOKEN; // Meta token
+  
+//   // Pakistan number: 03xx... ko 923xx... bana do
+//   let customerPhone = order.shippingAddress.phone.replace(/[^0-9]/g, '');
+//   if (customerPhone.startsWith('0')) {
+//     customerPhone = '92' + customerPhone.slice(1);
+//   } else if (!customerPhone.startsWith('92')) {
+//     customerPhone = '92' + customerPhone;
+//   }
+  
+//   const whatsappUrl = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
+  
+//   const messageData = {
+//   messaging_product: "whatsapp",
+//   to: customerPhone,
+//   type: "template",
+//   template: {
+//     name: "hello_world",
+//     language: { code: "en_US" }
+//   }
+// };
+
+//   try {
+//     await axios.post(whatsappUrl, messageData, {
+//       headers: { 
+//         'Authorization': `Bearer ${token}`,
+//         'Content-Type': 'application/json'
+//       }
+//     });
+//     console.log('WhatsApp sent to:', customerPhone);
+//   } catch (err) {
+//     console.error('WhatsApp error:', err.response?.data || err.message);
+//   }
+// }
+// 👆 WHATSAPP CODE END 👆
+
   res.json(updatedOrder)
 }))
 
@@ -465,10 +512,26 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     _id: { $in: orderItems.map(x => x.product) },
   })
 
-  if (itemsFromDB.length !== orderItems.length) {
-    res.status(404)
-    throw new Error('Product not found')
-  }
+//   console.log('Client sent:', orderItems.map(x => x.product))
+// console.log('DB found:', itemsFromDB.map(x => x._id.toString()))
+
+
+  // if (itemsFromDB.length !== orderItems.length) {
+  //   res.status(404)
+  //   throw new Error('Product not found')
+  // }
+
+  const dbProductIds = itemsFromDB.map(p => p._id.toString())
+const missingProducts = orderItems.filter(
+  item => !dbProductIds.includes(item.product)
+)
+
+if (missingProducts.length > 0) {
+  console.log('Missing product IDs:', missingProducts.map(i => i.product))
+  res.status(404)
+  throw new Error('Product not found')
+}
+ 
 
   const dbOrderItems = orderItems.map(itemFromClient => {
     const matchingItemFromDB = itemsFromDB.find(
@@ -478,14 +541,23 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
       res.status(404)
       throw new Error(`Product ${itemFromClient.product} not found`)
     }
+
+    // Find color variant for correct image
+  const colorVariant = matchingItemFromDB.colors.find(
+    (c) => c.name === itemFromClient.color
+  )
+  if (!colorVariant ||!colorVariant.images?.length) {
+    throw new Error(`Color ${itemFromClient.color} not found or has no images`)
+  }
+  
     return {
   name: matchingItemFromDB.name,
   qty: itemFromClient.qty,
-  image: matchingItemFromDB.image || itemFromClient.image, // FALLBACK TO CLIENT
+  image: colorVariant.images[0], // FALLBACK TO CLIENT
   price: matchingItemFromDB.price, // Keep DB price for security
   product: itemFromClient.product,
-  color: itemFromClient.color || '',
-  hexCode: itemFromClient.hexCode || '',
+  color: itemFromClient.color,
+  hexCode: itemFromClient.hexCode,
 }
   })
 
@@ -496,7 +568,9 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
   )
   
   // 3. Set currency dynamically for Stripe
-  const currency = shippingAddress.country === 'PK' ? 'pkr' : 'usd'
+  
+//const currency = shippingAddress.country === 'PK' ? 'pkr' : 'usd'
+const currency = 'usd' // Always USD
 
   // 4. Create order in DB - keep shipping/tax for your records
   const order = await Order.create({
@@ -526,7 +600,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
           <h3>Order ID: ${order._id.toString().slice(-6)}</h3>
           <p><strong>Items Total: ${order.currency} ${itemsPrice}</strong></p>
           <p><strong>Shipping:</strong> Free</p>
-          <p><strong>Tax:</strong>Not Included</p>
+          <p><strong>Tax:</strong> Not Included</p>
           <p><strong>Amount to Pay: ${order.currency} ${itemsPrice}</strong></p>
           
           <p>You'll be redirected to Stripe to complete payment. Once paid, you'll get a confirmation email.</p>
@@ -576,6 +650,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
 
   res.json({ url: session.url })
 }))
+
 
 //STRIPE WEBHOOK - Must use express.raw() for body
 // router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {

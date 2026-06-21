@@ -13,6 +13,8 @@ const orderSchema = mongoose.Schema(
         qty: { type: Number, required: true },
         image: { type: String, required: true },
         price: { type: Number, required: true },
+        color: { type: String, required: true },
+        hexCode: { type: String, required: true },
         product: {
           type: mongoose.Schema.Types.ObjectId,
           required: true,
@@ -27,7 +29,7 @@ const orderSchema = mongoose.Schema(
       postalCode: { type: String, required: true },
       country: { type: String, required: true },
     },
-    shippingMethod: { type: String }, // 'TCS', 'Leopards', 'Standard' 
+    //shippingMethod: { type: String }, // 'TCS', 'Leopards', 'Standard' 
     paymentMethod: {
       type: String,
       required: true,
@@ -51,7 +53,7 @@ const orderSchema = mongoose.Schema(
     isShipped: { type: Boolean, default: false },    // NEW
     shippedAt: { type: Date },                       // NEW
     trackingNumber: { type: String },                // NEW
-    carrier: { type: String },                       // NEW
+    carrier: { type: String },                       // 'TCS', 'Leopards', 'Standard' 
     isDelivered: { type: Boolean, required: true, default: false },
     deliveredAt: { type: Date },
   },
