@@ -30,13 +30,17 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     res.status(400)
     throw new Error('No order items')
   }
-
-  // 1. COD country check - must be Pakistan
-  const allowedCountries = ['Pakistan']
-  const country = shippingAddress.country
-  if (!allowedCountries.includes(country)) {
-    res.status(400)
-    throw new Error('COD only available in Pakistan')
+ 
+    // 1. COD country check - BYPASS IN DEMO MODE
+  const isDemo = process.env.DEMO_MODE === 'true'
+  
+  if (paymentMethod === 'COD' && !isDemo) {
+    const allowedCountries = ['Pakistan']
+    const country = shippingAddress.country?.trim()
+    if (!allowedCountries.includes(country)) {
+      res.status(400)
+      throw new Error('COD only available in Pakistan')
+    }
   }
 
   // 2. This route is only for COD

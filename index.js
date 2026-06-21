@@ -172,7 +172,7 @@ app.post('/api/orders/webhook', express.raw({type: 'application/json'}), async (
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
           <h2>Refund Processed</h2>
-          <p>Hi ${order.user.name}, your refund of <strong>${order.currency} ${(charge.amount_refunded / 100).toFixed(2)}</strong> has been processed.</p>
+          <p>Hi ${order.user.name}, your refund of <strong>${(charge.amount_refunded / 100).toFixed(2)}</strong> has been processed.</p>
           <p>It may take 5-10 business days to appear on your statement.</p>
           <p><strong>Order ID:</strong> ${order._id}</p>
         </div>
