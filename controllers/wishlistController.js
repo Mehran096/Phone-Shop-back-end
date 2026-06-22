@@ -20,11 +20,11 @@ const getWishlist = asyncHandler(async (req, res) => {
 // @route POST /api/users/wishlist
 // @access Private
 const addToWishlist = asyncHandler(async (req, res) => {
-  const { product, name, color, image, price, countInStock } = req.body
-
-  if (!product || !name || !color || !image || !price) {
+  const { product, name, color, hexCode, image, price, countInStock } = req.body
+console.log('Backend received:', req.body.hexCode)
+  if (!product || !name || !color || !image || !price || !hexCode) {
     res.status(400)
-    throw new Error('Missing required fields: product, name, color, image, price')
+    throw new Error('Missing required fields: product, name, color, image, price, hexCode')
   }
 
   const user = await User.findById(req.user._id)
@@ -46,6 +46,7 @@ const addToWishlist = asyncHandler(async (req, res) => {
       color, 
       image, 
       price,
+      hexCode,
       countInStock: countInStock || 0,
       qty: 1,
     }

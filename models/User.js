@@ -5,8 +5,15 @@ const crypto = require('crypto')
 const userSchema = mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
+  password: { 
+    type: String, 
+    required: function() {
+      return !this.googleId // Only required if NOT a Google user
+    }
+  },
   isAdmin: { type: Boolean, required: true, default: false },
+  googleId: { type: String }, // ADD THIS
+  image: { type: String }, // ADD THIS for Google profile pic
   cartItems: {
     type: Array,
     default: []
@@ -22,6 +29,7 @@ const userSchema = mongoose.Schema({
       image: { type: String, required: true },
       price: { type: Number, required: true },
       color: { type: String, required: true },
+      hexCode: { type: String, required: true },
       countInStock: { type: Number, required: true, default: 0 }, // Add this
     qty: { type: Number, required: true, default: 1 }, // Add this
     }
@@ -33,7 +41,7 @@ const userSchema = mongoose.Schema({
 
 // Hash password before save
 userSchema.pre('save', async function () {
-  if (!this.isModified('password')) {
+  if (!this.isModified('password') || !this.password) {
     return
   }
 
@@ -43,6 +51,7 @@ userSchema.pre('save', async function () {
 
 // Method to compare passwords during login
 userSchema.methods.matchPassword = async function (enteredPassword) {
+  if (!this.password) return false
   return await bcrypt.compare(enteredPassword, this.password)
 }
 

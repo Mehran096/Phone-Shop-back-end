@@ -22,6 +22,54 @@ const registerUser = asyncHandler(async (req, res) => {
   // ... your existing register code
 })
 
+// @desc    Auth user with Google & get token
+// @route   POST /api/users/google
+// @access  Public
+const loginGoogle = asyncHandler(async (req, res) => {
+  const { name, email, googleId, photo } = req.body
+
+  if (!email || !googleId) {
+    res.status(400)
+    throw new Error('Invalid Google data')
+  }
+
+  let user = await User.findOne({ email })
+
+  if (user) {
+    // User exists - just log them in
+    generateToken(res, user._id)
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      image: user.image,
+    })
+  } else {
+    // Create new user from Google data
+    user = await User.create({
+      name,
+      email,
+      password: googleId, // dummy password, won't be used for login
+      image: photo || '',
+    })
+    
+    if (user) {
+      generateToken(res, user._id)
+      res.status(201).json({
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        isAdmin: user.isAdmin,
+        image: user.image,
+      })
+    } else {
+      res.status(400)
+      throw new Error('Invalid user data')
+    }
+  }
+})
+
 // @desc    Get user cart
 // @route   GET /api/users/cart
 // @access  Private
@@ -145,5 +193,6 @@ module.exports = {
   saveUserCart,
    forgotPassword, 
   resetPassword,
+  loginGoogle,
   
 }

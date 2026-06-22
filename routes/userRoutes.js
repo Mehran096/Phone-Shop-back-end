@@ -5,10 +5,12 @@ const router = express.Router();
 //const generateToken = require('../utils/generateToken.js')
 const { protect} = require('../middleware/auth.js');
 const { admin } = require('../middleware/adminMiddleware');
+const generateToken = require('../utils/generateToken')
 const { 
    
   forgotPassword, 
   resetPassword,
+   loginGoogle,
    
 } = require('../controllers/userController')
 const {
@@ -20,26 +22,12 @@ const {
 const asyncHandler = require('express-async-handler');
  
 // Generate JWT
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
-  });
-};
- 
- 
-
-//  router.delete('/fix-wishlist', protect, asyncHandler(async (req, res) => {
-//   const user = await User.findById(req.user._id)
+// const generateToken = (id) => {
+//   return jwt.sign({ id }, process.env.JWT_SECRET, {
+//     expiresIn: '30d',
+//   });
+// };
   
-//   if (user) {
-//     user.wishlist = []
-//     await user.save()
-//     res.json({ message: 'Wishlist cleared' })
-//   } else {
-//     res.status(404)
-//     throw new Error('User not found')
-//   }
-// }))
 
 // @desc    Register user
 // @route   POST /api/users
@@ -56,15 +44,8 @@ router.post('/', asyncHandler(async (req, res) => {
   const user = await User.create({ name, email, password })
 
   if (user) {
-    const token = generateToken(user._id) // Only returns token string
-
-    // Set cookie HERE
-    res.cookie('jwt', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // false for http://localhost
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
-    })
+    generateToken(res, user._id)
+    
 
     res.status(201).json({
       _id: user._id,
@@ -78,6 +59,9 @@ router.post('/', asyncHandler(async (req, res) => {
     throw new Error('Invalid user data')
   }
 }))
+
+//google authentication
+router.post('/google', loginGoogle)
 
 // @desc    Get user cart
 // @route   GET /api/users/cart
@@ -157,15 +141,9 @@ router.post('/auth', asyncHandler(async (req, res) => {
   const { email, password } = req.body
   const user = await User.findOne({ email })
 
+  //console.log('generateToken:', typeof generateToken)
   if (user && (await user.matchPassword(password))) {
-    const token = generateToken(user._id)
-
-    res.cookie('jwt', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000
-    })
+   generateToken(res, user._id)
 
     res.json({
       _id: user._id,
@@ -174,6 +152,7 @@ router.post('/auth', asyncHandler(async (req, res) => {
       isAdmin: user.isAdmin,
       cartItems: user.cartItems || [] // <- Add this
     })
+    //console.log('6. JSON sent')
   } else {
     res.status(401)
     throw new Error('Invalid email or password')
@@ -187,6 +166,7 @@ router.post('/logout', (req, res) => {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     expires: new Date(0),
+    domain: 'localhost'
   })
   res.status(200).json({ message: 'Logged out successfully' })
 })
