@@ -74,6 +74,7 @@ const loginGoogle = asyncHandler(async (req, res) => {
 // @route   GET /api/users/cart
 // @access  Private
 const getUserCart = asyncHandler(async (req, res) => {
+  console.log('>>> NEW CODE: Filtering null products at', new Date())
   const user = await User.findById(req.user._id).populate({
     path: 'cartItems.product',
     select: 'name price image countInStock colors' // only what frontend needs
