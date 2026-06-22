@@ -1,55 +1,36 @@
 require('dotenv').config();
 const { MongoClient } = require('mongodb');
 
-const migrateReplyDates = async () => {
+const cleanBrokenUserItems = async () => {
   const client = new MongoClient(process.env.MONGO_URI);
-  await client.connect();
-  
-  const db = client.db(); // uses DB from your URI
-  const result = await db.collection('products').updateMany(
-    { "reviews.adminReply.repliedAt": { $exists: true } },
-    [
-      {
-        $set: {
-          "reviews": {
-            $map: {
-              input: "$reviews",
-              as: "review",
-              in: {
-                $mergeObjects: [
-                  "$$review",
-                  {
-                    adminReply: {
-                      $cond: [
-                        { $ne: ["$$review.adminReply", null] },
-                        {
-                          reply: "$$review.adminReply.reply",
-                          name: "$$review.adminReply.name", 
-                          user: "$$review.adminReply.user",
-                          createdAt: "$$review.adminReply.repliedAt"
-                        },
-                        "$$review.adminReply"
-                      ]
-                    }
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    ]
-  );
+  try {
+    await client.connect();
+    const db = client.db();
 
-  console.log('Migration result:', result);
-  await client.close();
-  process.exit();
+    console.log('Cleaning broken cart items...');
+    const cartResult = await db.collection('users').updateMany(
+      {},
+      { $pull: { cartItems: { product: null } } }
+    );
+    console.log(`Modified ${cartResult.modifiedCount} users - removed null cart items`);
+
+    console.log('Cleaning broken wishlist items...');
+    const wishlistResult = await db.collection('users').updateMany(
+      {},
+      { $pull: { wishlist: { product: null } } }
+    );
+    console.log(`Modified ${wishlistResult.modifiedCount} users - removed null wishlist items`);
+
+    console.log('Cleanup completed');
+  } catch (error) {
+    console.error('Error:', error);
+  } finally {
+    await client.close();
+    process.exit();
+  }
 };
 
-migrateReplyDates().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+cleanBrokenUserItems();
 
 
 
