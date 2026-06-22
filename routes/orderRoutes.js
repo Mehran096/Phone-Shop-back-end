@@ -26,7 +26,7 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     paymentMethod,
   } = req.body
 
-  if (orderItems && orderItems.length === 0) {
+  if (!orderItems || orderItems.length === 0) {
     res.status(400)
     throw new Error('No order items')
   }
@@ -50,9 +50,18 @@ router.post('/', protect, asyncHandler(async (req, res) => {
   }
 
   // 3. Get real product prices from DB - FIXED for duplicate product IDs
- const uniqueProductIds = [...new Set(orderItems.map((x) => 
-  typeof x.product === 'object' ? x.product._id : x.product
-))]
+    const validOrderItems = orderItems.filter(x => x.product !== null)
+
+if (validOrderItems.length === 0) {
+  res.status(400)
+  throw new Error('All products in cart were deleted')
+}
+
+const uniqueProductIds = [...new Set(
+  validOrderItems.map(x => 
+    typeof x.product === 'object' ? x.product._id : x.product
+  )
+)]
 
   // Check if all unique product IDs exist
   // if (itemsFromDB.length !== uniqueProductIds.length) {
@@ -64,17 +73,16 @@ router.post('/', protect, asyncHandler(async (req, res) => {
   _id: { $in: uniqueProductIds },
 })
 
-// Check if all unique product IDs exist
-if (itemsFromDB.length!== uniqueProductIds.length) {
-  res.status(404)
-  throw new Error('One or more products not found')
-}
+// // Check if all unique product IDs exist
+// if (itemsFromDB.length!== uniqueProductIds.length) {
+//   res.status(404)
+//   throw new Error('One or more products not found')
+// }
 
   // Map DB prices to order items + include color
-const dbOrderItems = orderItems.map((itemFromClient) => {
-  // Extract ID first - handles both string and populated object
-  const productId = typeof itemFromClient.product === 'object'
-   ? itemFromClient.product._id
+const dbOrderItems = validOrderItems.map((itemFromClient) => {
+  const productId = typeof itemFromClient.product === 'object' 
+    ? itemFromClient.product._id 
     : itemFromClient.product
 
   const matchingItemFromDB = itemsFromDB.find(

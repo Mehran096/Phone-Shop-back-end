@@ -6,6 +6,7 @@ const Product = require('../models/Product')
 // @route GET /api/users/wishlist
 // @access Private
 const getWishlist = asyncHandler(async (req, res) => {
+  console.log('>>> WISHLIST FIX IS LIVE')
   const user = await User.findById(req.user._id).populate({
     path: 'wishlist',
     select: 'name price image countInStock colors'
@@ -16,7 +17,7 @@ const getWishlist = asyncHandler(async (req, res) => {
   
   // Clean DB if we found nulls
   if (user && validWishlist.length !== user.wishlist.length) {
-    user.wishlist = validWishlist.map(p => p._id) // save only IDs
+    user.wishlist = validWishlist.map(p => p._id)
     await user.save()
   }
 
