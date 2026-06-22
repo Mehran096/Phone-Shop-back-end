@@ -74,10 +74,15 @@ const loginGoogle = asyncHandler(async (req, res) => {
 // @route   GET /api/users/cart
 // @access  Private
 const getUserCart = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id)
-  
+  const user = await User.findById(req.user._id).populate({
+    path: 'cartItems.product',
+    select: 'name price image countInStock colors' // only what frontend needs
+  })
+
   if (user) {
-    res.json({ cartItems: user.cartItems || [] })
+    // Remove items where product was deleted from DB
+    const validCart = user.cartItems.filter(item => item.product !== null)
+    res.json({ cartItems: validCart || [] })
   } else {
     res.status(404)
     throw new Error('User not found')

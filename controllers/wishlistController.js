@@ -6,10 +6,11 @@ const Product = require('../models/Product')
 // @route GET /api/users/wishlist
 // @access Private
 const getWishlist = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id)
-
+  const user = await User.findById(req.user._id).populate('wishlist.product')
+  
   if (user) {
-    res.json(user.wishlist)
+    const validWishlist = user.wishlist.filter(item => item.product !== null)
+    res.json(validWishlist)
   } else {
     res.status(404)
     throw new Error('User not found')

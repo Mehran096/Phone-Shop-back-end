@@ -50,44 +50,60 @@ router.post('/', protect, asyncHandler(async (req, res) => {
   }
 
   // 3. Get real product prices from DB - FIXED for duplicate product IDs
-  const uniqueProductIds = [...new Set(orderItems.map((x) => x.product))]
-  const itemsFromDB = await Product.find({ 
-    _id: { $in: uniqueProductIds }, 
-  })
+ const uniqueProductIds = [...new Set(orderItems.map((x) => 
+  typeof x.product === 'object' ? x.product._id : x.product
+))]
 
   // Check if all unique product IDs exist
-  if (itemsFromDB.length !== uniqueProductIds.length) {
-    res.status(404)
-    throw new Error('One or more products not found')
-  }
+  // if (itemsFromDB.length !== uniqueProductIds.length) {
+  //   res.status(404)
+  //   throw new Error('One or more products not found')
+  // }
+
+  const itemsFromDB = await Product.find({
+  _id: { $in: uniqueProductIds },
+})
+
+// Check if all unique product IDs exist
+if (itemsFromDB.length!== uniqueProductIds.length) {
+  res.status(404)
+  throw new Error('One or more products not found')
+}
 
   // Map DB prices to order items + include color
-  const dbOrderItems = orderItems.map((itemFromClient) => {
-    const matchingItemFromDB = itemsFromDB.find(
-      (itemFromDB) => itemFromDB._id.toString() === itemFromClient.product
-    )
-    if (!matchingItemFromDB) {
-      throw new Error(`Product not found: ${itemFromClient.product}`)
-    }
+const dbOrderItems = orderItems.map((itemFromClient) => {
+  // Extract ID first - handles both string and populated object
+  const productId = typeof itemFromClient.product === 'object'
+   ? itemFromClient.product._id
+    : itemFromClient.product
 
-    // Find color variant for correct image
+  const matchingItemFromDB = itemsFromDB.find(
+    (itemFromDB) => itemFromDB._id.toString() === productId.toString()
+  )
+
+  if (!matchingItemFromDB) {
+    throw new Error(`Product not found: ${productId}`)
+  }
+
+  // Find color variant for correct image
   const colorVariant = matchingItemFromDB.colors.find(
     (c) => c.name === itemFromClient.color
   )
+
   if (!colorVariant ||!colorVariant.images?.length) {
     throw new Error(`Color ${itemFromClient.color} not found or has no images`)
   }
 
-    return {
-      name: matchingItemFromDB.name,
-      qty: itemFromClient.qty,
-      image: colorVariant.images[0],
-      price: matchingItemFromDB.price, // Always use DB price
-      color: itemFromClient.color, // <-- CRITICAL: Save color
-      hexCode: itemFromClient.hexCode,
-      product: itemFromClient.product,
-    }
-  })
+  return {
+    name: matchingItemFromDB.name,
+    qty: itemFromClient.qty,
+    image: colorVariant.images[0],
+    price: matchingItemFromDB.price, // Always use DB price
+    color: itemFromClient.color,
+    hexCode: itemFromClient.hexCode,
+    product: matchingItemFromDB._id, // ← Use DB _id, not client product
+  }
+})
 
   // 4. Calculate everything server-side
   const { itemsPrice, taxPrice, shippingPrice, totalPrice, currency } = 
