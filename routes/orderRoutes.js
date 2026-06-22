@@ -172,19 +172,40 @@ const dbOrderItems = orderItems.map((itemFromClient) => {
 // @route   GET /api/orders/myorders
 // @access  Private
 router.get('/myorders', protect, async (req, res) => {
-  const orders = await Order.find({ user: req.user._id });
-  res.json(orders);
-});
+  const orders = await Order.find({ user: req.user._id })
+    .populate('user', 'name email')
+    .populate({
+      path: 'orderItems.product',
+      select: 'name image' // Don't populate deleted products
+    })
+
+  // Filter out null products from old orders
+  const safeOrders = orders.map(order => ({
+    ...order.toObject(),
+    orderItems: order.orderItems.filter(item => item.product !== null)
+  }))
+
+  res.json(safeOrders)
+})
 
 // @desc    Get order by ID
 // @route   GET /api/orders/:id
 // @access  Private
 router.get('/:id', protect, asyncHandler(async (req, res) => {
-
-  const order = await Order.findById(req.params.id).populate('user', 'name email')
+  const order = await Order.findById(req.params.id)
+    .populate('user', 'name email')
+    .populate({
+      path: 'orderItems.product',
+      select: 'name image price colors'
+    })
 
   if (order) {
-    res.json(order)
+    // Filter null products if product was deleted after order was placed
+    const safeOrder = {
+      ...order.toObject(),
+      orderItems: order.orderItems.filter(item => item.product !== null)
+    }
+    res.json(safeOrder)
   } else {
     res.status(404)
     throw new Error('Order not found')

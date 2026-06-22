@@ -6,15 +6,21 @@ const Product = require('../models/Product')
 // @route GET /api/users/wishlist
 // @access Private
 const getWishlist = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id).populate('wishlist.product')
+  const user = await User.findById(req.user._id).populate({
+    path: 'wishlist',
+    select: 'name price image countInStock colors'
+  })
+
+  // Filter out null products - same fix as cart
+  const validWishlist = user?.wishlist.filter(item => item) || []
   
-  if (user) {
-    const validWishlist = user.wishlist.filter(item => item.product !== null)
-    res.json(validWishlist)
-  } else {
-    res.status(404)
-    throw new Error('User not found')
+  // Clean DB if we found nulls
+  if (user && validWishlist.length !== user.wishlist.length) {
+    user.wishlist = validWishlist.map(p => p._id) // save only IDs
+    await user.save()
   }
+
+  res.json(validWishlist)
 })
 
 // @desc Add item to wishlist
