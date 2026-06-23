@@ -6,7 +6,7 @@ const extractPublicIdFromUrl = (url) => {
   try {
     // Regex grabs everything after /upload/ and before the file extension
     const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
-    return matches? matches[1] : null
+    return matches ? matches[1] : null
   } catch {
     return null
   }
@@ -17,12 +17,12 @@ const extractPublicIdFromUrl = (url) => {
 // @access Private/Admin
 const createProduct = asyncHandler(async (req, res) => {
   // Block demo admin from destructive actions
-const isDemoAdmin = req.user.email === 'demo@phonestore.com'
-if (isDemoAdmin) {
-  return res.status(403).json({ 
-    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
-  })
-}
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+  if (isDemoAdmin) {
+    return res.status(403).json({
+      message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
+    })
+  }
   try {
     const { name, price, brand, category, countInStock, description } = req.body
 
@@ -31,14 +31,14 @@ if (isDemoAdmin) {
     let specs = []
 
     try {
-      colors = req.body.colors? JSON.parse(req.body.colors) : []
+      colors = req.body.colors ? JSON.parse(req.body.colors) : []
     } catch (e) {
       res.status(400)
       throw new Error('Invalid colors format')
     }
 
     try {
-      specs = req.body.specs? JSON.parse(req.body.specs) : []
+      specs = req.body.specs ? JSON.parse(req.body.specs) : []
     } catch (e) {
       res.status(400)
       throw new Error('Invalid specs format')
@@ -46,20 +46,20 @@ if (isDemoAdmin) {
 
     const colorsWithImages = colors.map((color, idx) => {
       const fieldName = `colorImages-${idx}`
-      const colorFiles = req.files? req.files[fieldName] || [] : []
+      const colorFiles = req.files ? req.files[fieldName] || [] : []
 
       return {
         name: color.name || '',
         hexCode: color.hexCode || '',
         countInStock: Number(color.countInStock) || 0,
-        price: color.price? Number(color.price) : Number(price),
+        price: color.price ? Number(color.price) : Number(price),
         images: colorFiles.map(file => file.path),
         imagePublicIds: colorFiles.map(file => file.filename),
       }
     })
 
     const totalStock = colorsWithImages.length > 0
-     ? colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
+      ? colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
       : Number(countInStock) || 0
 
     const product = new Product({
@@ -96,20 +96,20 @@ const getProducts = asyncHandler(async (req, res) => {
 
   const searchFilter = keyword
     ? {
-        $and: keyword
-          .trim()
-          .split(' ')
-          .filter(Boolean)
-          .map((word) => ({
-            $or: [
-              { name: { $regex: word, $options: 'i' } },
-              { brand: { $regex: word, $options: 'i' } },
-              { category: { $regex: word, $options: 'i' } },
-              { 'colors.name': { $regex: word, $options: 'i' } }, 
-              { 'specs.storage': { $regex: word, $options: 'i' } }, 
-            ],
-          })),
-      }
+      $and: keyword
+        .trim()
+        .split(' ')
+        .filter(Boolean)
+        .map((word) => ({
+          $or: [
+            { name: { $regex: word, $options: 'i' } },
+            { brand: { $regex: word, $options: 'i' } },
+            { category: { $regex: word, $options: 'i' } },
+            { 'colors.name': { $regex: word, $options: 'i' } },
+            { 'specs.storage': { $regex: word, $options: 'i' } },
+          ],
+        })),
+    }
     : {}
 
   const brandFilter = brand ? { brand: { $regex: brand, $options: 'i' } } : {}
@@ -144,12 +144,12 @@ const getProductById = asyncHandler(async (req, res) => {
 // @access Private/Admin
 const updateProduct = asyncHandler(async (req, res) => {
   // Block demo admin from destructive actions
-const isDemoAdmin = req.user.email === 'demo@phonestore.com'
-if (isDemoAdmin) {
-  return res.status(403).json({ 
-    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
-  })
-}
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+  if (isDemoAdmin) {
+    return res.status(403).json({
+      message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
+    })
+  }
   const product = await Product.findById(req.params.id)
 
   if (!product) {
@@ -159,15 +159,15 @@ if (isDemoAdmin) {
 
   const { name, price, description, brand, category, specs, countInStock } = req.body
   // Fix specs update
-    if (specs) {
-      product.specs = {
-        ...(product.specs ? product.specs.toObject() : {}),
-        ...specs,
-      }
+  if (specs) {
+    product.specs = {
+      ...(product.specs ? product.specs.toObject() : {}),
+      ...specs,
     }
+  }
 
   // 1. Delete images from Cloudinary first
-  const imagesToDelete = req.body.imagesToDelete? JSON.parse(req.body.imagesToDelete) : []
+  const imagesToDelete = req.body.imagesToDelete ? JSON.parse(req.body.imagesToDelete) : []
   console.log('Deleting from Cloudinary:', imagesToDelete)
 
   if (imagesToDelete.length > 0) {
@@ -180,8 +180,8 @@ if (isDemoAdmin) {
   }
 
   // 2. Parse colors and specs from FormData
-  const colors = req.body.colors? JSON.parse(req.body.colors) : []
-  const parsedSpecs = req.body.specs? JSON.parse(req.body.specs) : []
+  const colors = req.body.colors ? JSON.parse(req.body.colors) : []
+  const parsedSpecs = req.body.specs ? JSON.parse(req.body.specs) : []
 
   // 3. Handle COLORS + their images
   const colorsWithImages = colors.map((color, idx) => {
@@ -197,9 +197,9 @@ if (isDemoAdmin) {
       name: color.name,
       hexCode: color.hexCode || '#000000',
       countInStock: Number(color.countInStock) || 0,
-      price: color.price? Number(color.price) : Number(price),
-      images: [...(color.images || []),...newImageUrls],
-      imagePublicIds: [...(color.imagePublicIds || []),...newPublicIds],
+      price: color.price ? Number(color.price) : Number(price),
+      images: [...(color.images || []), ...newImageUrls],
+      imagePublicIds: [...(color.imagePublicIds || []), ...newPublicIds],
     }
   })
 
@@ -222,7 +222,7 @@ if (isDemoAdmin) {
   product.colors = colorsWithImages
   product.countInStock = colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
 
-  
+
 
   const updatedProduct = await product.save()
   res.json(updatedProduct)
@@ -235,12 +235,12 @@ if (isDemoAdmin) {
 // @access Private/Admin
 const deleteProduct = asyncHandler(async (req, res) => {
   // Block demo admin from destructive actions
-const isDemoAdmin = req.user.email === 'demo@phonestore.com'
-if (isDemoAdmin) {
-  return res.status(403).json({ 
-    message: 'Demo accounts have read-only access. Contact developer for full admin demo.' 
-  })
-}
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+  if (isDemoAdmin) {
+    return res.status(403).json({
+      message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
+    })
+  }
   const product = await Product.findById(req.params.id)
 
   if (!product) {
@@ -256,7 +256,7 @@ if (isDemoAdmin) {
       if (!url) return null
       // Handles: https://res.cloudinary.com/demo/image/upload/v1234/products/img.jpg
       const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
-      return matches? matches[1] : null
+      return matches ? matches[1] : null
     }
 
     // 1. Main product image
@@ -307,6 +307,17 @@ if (isDemoAdmin) {
 
     // Delete product from DB
     await product.deleteOne()
+
+    // Clean up user carts and wishlists - prevents future nulls
+    await User.updateMany(
+      { wishlist: req.params.id },
+      { $pull: { wishlist: req.params.id } }
+    )
+    await User.updateMany(
+      { 'cart.product': req.params.id },
+      { $pull: { cart: { product: req.params.id } } }
+    )
+
     res.json({ message: 'Product and all images removed' })
 
   } catch (error) {
@@ -352,7 +363,7 @@ const createProductReview = asyncHandler(async (req, res) => {
         if (typeof img === 'object' && img.secure_url) {
           review.images.push(img.secure_url)
           review.imagePublicIds.push(img.public_id)
-        } 
+        }
         // Case 2: Frontend sends just URLs - extract public_id with regex
         else if (typeof img === 'string') {
           review.images.push(img)
@@ -555,7 +566,7 @@ const deleteProductReview = asyncHandler(async (req, res) => {
   }
 
   // Check if user owns the review or is admin
-  if (review.user.toString()!== req.user._id.toString() &&!req.user.isAdmin) {
+  if (review.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
     res.status(401)
     throw new Error('Not authorized')
   }
@@ -587,14 +598,14 @@ const deleteProductReview = asyncHandler(async (req, res) => {
 
   // 2. Remove review from product
   product.reviews = product.reviews.filter(
-    (r) => r._id.toString()!== req.params.reviewId
+    (r) => r._id.toString() !== req.params.reviewId
   )
 
   // 3. Recalculate rating + numReviews
   product.numReviews = product.reviews.length
   product.rating =
     product.reviews.length > 0
-     ? product.reviews.reduce((acc, r) => acc + r.rating, 0) / product.reviews.length
+      ? product.reviews.reduce((acc, r) => acc + r.rating, 0) / product.reviews.length
       : 0
 
   await product.save()
@@ -605,7 +616,7 @@ const deleteProductReview = asyncHandler(async (req, res) => {
 // @access Private
 const markReviewHelpful = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id);
-  
+
   if (product) {
     const review = product.reviews.id(req.params.reviewId);
 
@@ -629,11 +640,11 @@ const markReviewHelpful = asyncHandler(async (req, res) => {
     }
 
     await product.save();
-    
+
     // Return count + whether current user voted
-    res.status(200).json({ 
+    res.status(200).json({
       helpfulCount: review.helpful.length,
-      userVoted: !alreadyVoted 
+      userVoted: !alreadyVoted
     });
   } else {
     res.status(404);
@@ -710,7 +721,7 @@ const deleteAdminReply = asyncHandler(async (req, res) => {
   }
 
   const review = product.reviews.id(reviewId);
-  
+
   if (!review || !review.adminReply) {
     res.status(404);
     throw new Error('Review or reply not found');
@@ -734,7 +745,7 @@ const updateProductSpecs = asyncHandler(async (req, res) => {
       ...(product.specs ? product.specs.toObject() : {}),
       ...req.body.specs,
     }
-    
+
     const updatedProduct = await product.save()
     res.json(updatedProduct)
   } else {
@@ -759,5 +770,5 @@ module.exports = {
   markReviewHelpful,
   addAdminReply,
   editAdminReply,
-   deleteAdminReply
+  deleteAdminReply
 }

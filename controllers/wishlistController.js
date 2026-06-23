@@ -6,17 +6,23 @@ const Product = require('../models/Product')
 // @route GET /api/users/wishlist
 // @access Private
 const getWishlist = asyncHandler(async (req, res) => {
-  console.log('>>> WISHLIST FIX IS LIVE')
-  const user = await User.findById(req.user._id).populate({
+  const user = await User.findById(req.user._id)
+  
+  if (!user) {
+    res.status(404)
+    throw new Error('User not found')
+  }
+
+  await user.populate({
     path: 'wishlist',
-    select: 'name price image countInStock colors'
+    select: 'name price image countInStock colors',
   })
 
   // Filter out null products - same fix as cart
   const validWishlist = user?.wishlist.filter(item => item) || []
-  
+
   // Clean DB if we found nulls
-  if (user && validWishlist.length !== user.wishlist.length) {
+  if (validWishlist.length !== user.wishlist.length) {
     user.wishlist = validWishlist.map(p => p._id)
     await user.save()
   }
@@ -29,7 +35,7 @@ const getWishlist = asyncHandler(async (req, res) => {
 // @access Private
 const addToWishlist = asyncHandler(async (req, res) => {
   const { product, name, color, hexCode, image, price, countInStock } = req.body
-console.log('Backend received:', req.body.hexCode)
+//console.log('Backend received:', req.body.hexCode)
   if (!product || !name || !color || !image || !price || !hexCode) {
     res.status(400)
     throw new Error('Missing required fields: product, name, color, image, price, hexCode')

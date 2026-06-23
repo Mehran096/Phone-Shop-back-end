@@ -62,22 +62,12 @@ const uniqueProductIds = [...new Set(
     typeof x.product === 'object' ? x.product._id : x.product
   )
 )]
-
-  // Check if all unique product IDs exist
-  // if (itemsFromDB.length !== uniqueProductIds.length) {
-  //   res.status(404)
-  //   throw new Error('One or more products not found')
-  // }
+ 
 
   const itemsFromDB = await Product.find({
   _id: { $in: uniqueProductIds },
 })
-
-// // Check if all unique product IDs exist
-// if (itemsFromDB.length!== uniqueProductIds.length) {
-//   res.status(404)
-//   throw new Error('One or more products not found')
-// }
+ 
 
   // Map DB prices to order items + include color
 const dbOrderItems = validOrderItems.map((itemFromClient) => {
