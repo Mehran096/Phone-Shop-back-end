@@ -12,14 +12,56 @@ const sendEmail = require('../utils/sendEmail')
 // @route   POST /api/users/login
 // @access  Public
 const authUser = asyncHandler(async (req, res) => {
-  // ... your existing login code
+  const { email, password } = req.body
+  const user = await User.findOne({ email })
+
+  //console.log('generateToken:', typeof generateToken)
+  if (user && (await user.matchPassword(password))) {
+   generateToken(res, user._id)
+
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      cartItems: user.cartItems || [] // <- Add this
+    })
+    //console.log('6. JSON sent')
+  } else {
+    res.status(401)
+    throw new Error('Invalid email or password')
+  }
 })
 
 // @desc    Register a new user
 // @route   POST /api/users
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-  // ... your existing register code
+   const { name, email, password } = req.body
+  const userExists = await User.findOne({ email })
+
+  if (userExists) {
+    res.status(400)
+    throw new Error('User already exists')
+  }
+  
+  const user = await User.create({ name, email, password })
+
+  if (user) {
+    generateToken(res, user._id)
+    
+
+    res.status(201).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      cartItems: user.cartItems // <- Add this for Redux
+    })
+  } else {
+    res.status(400)
+    throw new Error('Invalid user data')
+  }
 })
 
 // @desc    Auth user with Google & get token
@@ -74,28 +116,14 @@ const loginGoogle = asyncHandler(async (req, res) => {
 // @route   GET /api/users/cart
 // @access  Private
 const getUserCart = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id)
-  
-  if (!user) {
+   const user = await User.findById(req.user._id)
+
+  if (user) {
+    res.json({ cartItems: user.cartItems || [] })
+  } else {
     res.status(404)
     throw new Error('User not found')
   }
-
-  await user.populate({
-    path: 'cart.product',
-    select: 'name price image countInStock colors',
-  })
-
-  // Filter out null products
-  const validCart = user?.cart.filter(item => item.product) || []
-
-  // Clean DB if we found nulls
-  if (validCart.length !== user.cart.length) {
-    user.cart = validCart
-    await user.save()
-  }
-
-  res.json(validCart)
 })
 
 // @desc    Save user cart
@@ -103,11 +131,33 @@ const getUserCart = asyncHandler(async (req, res) => {
 // @access  Private
 const saveUserCart = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id)
-  
+
   if (user) {
-    user.cartItems = req.body.cartItems || []
-    await user.save()
-    res.status(200).json({ message: 'Cart saved successfully' })
+    const guestCartItems = req.body.cartItems || []
+    const existingCart = user.cartItems || []
+
+    // Merge guest items into existing DB cart
+    guestCartItems.forEach(guestItem => {
+      const existItem = existingCart.find(
+        x => x._id.toString() === guestItem._id.toString()
+      )
+      
+      if (existItem) {
+        // If same product exists, add quantities
+        existItem.qty += guestItem.qty
+      } else {
+        // If new product, push to cart
+        existingCart.push({ ...guestItem })
+      }
+    })
+
+    user.cartItems = existingCart
+    const updatedUser = await user.save()
+    
+    res.status(200).json({ 
+      message: 'Cart saved successfully',
+      cartItems: updatedUser.cartItems 
+    })
   } else {
     res.status(404)
     throw new Error('User not found')

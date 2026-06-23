@@ -7,10 +7,13 @@ const { protect} = require('../middleware/auth.js');
 const { admin } = require('../middleware/adminMiddleware');
 const generateToken = require('../utils/generateToken')
 const { 
-   
+  registerUser,
+  authUser,
   forgotPassword, 
   resetPassword,
    loginGoogle,
+   saveUserCart,
+   getUserCart,
    
 } = require('../controllers/userController')
 const {
@@ -32,33 +35,7 @@ const asyncHandler = require('express-async-handler');
 // @desc    Register user
 // @route   POST /api/users
 // @access  Public
-router.post('/', asyncHandler(async (req, res) => {
-  const { name, email, password } = req.body
-  const userExists = await User.findOne({ email })
-
-  if (userExists) {
-    res.status(400)
-    throw new Error('User already exists')
-  }
-  
-  const user = await User.create({ name, email, password })
-
-  if (user) {
-    generateToken(res, user._id)
-    
-
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      isAdmin: user.isAdmin,
-      cartItems: user.cartItems // <- Add this for Redux
-    })
-  } else {
-    res.status(400)
-    throw new Error('Invalid user data')
-  }
-}))
+router.post('/', registerUser)
 
 //google authentication
 router.post('/google', loginGoogle)
@@ -66,61 +43,19 @@ router.post('/google', loginGoogle)
 // @desc    Get user cart
 // @route   GET /api/users/cart
 // @access  Private
-router.get('/cart', protect, asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id)
-
-  if (user) {
-    res.json({ cartItems: user.cartItems || [] })
-  } else {
-    res.status(404)
-    throw new Error('User not found')
-  }
-}))
+router.get('/cart', protect, getUserCart)
 
 // @desc    Save user cart
 // @route   POST /api/users/cart
 // @access  Private
-router.post('/cart', protect, asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id)
+router.post('/cart', protect, saveUserCart)
 
-  if (user) {
-    const guestCartItems = req.body.cartItems || []
-    const existingCart = user.cartItems || []
-
-    // Merge guest items into existing DB cart
-    guestCartItems.forEach(guestItem => {
-      const existItem = existingCart.find(
-        x => x._id.toString() === guestItem._id.toString()
-      )
-      
-      if (existItem) {
-        // If same product exists, add quantities
-        existItem.qty += guestItem.qty
-      } else {
-        // If new product, push to cart
-        existingCart.push({ ...guestItem })
-      }
-    })
-
-    user.cartItems = existingCart
-    const updatedUser = await user.save()
-    
-    res.status(200).json({ 
-      message: 'Cart saved successfully',
-      cartItems: updatedUser.cartItems 
-    })
-  } else {
-    res.status(404)
-    throw new Error('User not found')
-  }
-}))
-
-router.put('/cart', protect, asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id)
-  user.cartItems = req.body.cartItems || []
-  await user.save()
-  res.json({ cartItems: user.cartItems })
-}))
+// router.put('/cart', protect, asyncHandler(async (req, res) => {
+//   const user = await User.findById(req.user._id)
+//   user.cartItems = req.body.cartItems || []
+//   await user.save()
+//   res.json({ cartItems: user.cartItems })
+// }))
 
   
 
@@ -137,27 +72,7 @@ router.get('/admin/users', protect, admin, async (req, res) => {
 // @desc Auth user & get token
 // @route POST /api/users/auth
 // @access Public
-router.post('/auth', asyncHandler(async (req, res) => {
-  const { email, password } = req.body
-  const user = await User.findOne({ email })
-
-  //console.log('generateToken:', typeof generateToken)
-  if (user && (await user.matchPassword(password))) {
-   generateToken(res, user._id)
-
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      isAdmin: user.isAdmin,
-      cartItems: user.cartItems || [] // <- Add this
-    })
-    //console.log('6. JSON sent')
-  } else {
-    res.status(401)
-    throw new Error('Invalid email or password')
-  }
-}))
+router.post('/auth', authUser)
 
 // @desc Logout user / clear cookie
 router.post('/logout', (req, res) => {
