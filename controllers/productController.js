@@ -1,5 +1,7 @@
+const mongoose = require('mongoose')
 const asyncHandler = require('express-async-handler')
 const Product = require('../models/Product')
+const User = require('../models/User')
 const { cloudinary } = require('../utils/cloudinary')
 
 const extractPublicIdFromUrl = (url) => {
@@ -309,22 +311,24 @@ const deleteProduct = asyncHandler(async (req, res) => {
     await product.deleteOne()
 
     // Clean up user carts and wishlists - prevents future nulls
-    await User.updateMany(
-      { wishlist: req.params.id },
-      { $pull: { wishlist: req.params.id } }
-    )
-    await User.updateMany(
-      { 'cart.product': req.params.id },
-      { $pull: { cart: { product: req.params.id } } }
-    )
+    const productId = new mongoose.Types.ObjectId(req.params.id)
+
+   await User.updateMany(
+  { wishlist: productId }, // Use ObjectId here
+  { $pull: { wishlist: productId } }
+)
+await User.updateMany(
+  { 'cart.product': productId }, // And here
+  { $pull: { cart: { product: productId } } }
+)
 
     res.json({ message: 'Product and all images removed' })
 
   } catch (error) {
-    console.error(error)
-    res.status(500)
-    throw new Error('Failed to delete product images from Cloudinary')
-  }
+  console.error('Delete product error:', error)
+  res.status(500).json({ message: error.message || 'Server error' })
+}
+
 })
 
 // @desc Create new review
