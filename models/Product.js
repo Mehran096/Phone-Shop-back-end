@@ -23,8 +23,8 @@ const productSchema = mongoose.Schema({
   brand: { type: String, required: true }, // Apple, Samsung, Google
   category: { type: String}, // ADD THIS
   image: { type: String}, // main image URL
-  images: { type: [String], default: [] }, // gallery
-  imagePublicIds: { type: [String], default: [] },
+  //images: { type: [String], default: [] }, // gallery
+  //imagePublicIds: { type: [String], default: [] },
   description: { type: String, required: true },
   colors: {
     type: [
@@ -49,8 +49,8 @@ numReviews: { type: Number, required: true, default: 0 },
     battery: { type: String }, // 4000mAh
     camera: { type: String } // 48MP Triple
   },
-  price: { type: Number, required: true, default: 0 },
-  countInStock: { type: Number, required: true, default: 0 }, 
+  //price: { type: Number, required: true, default: 0 },
+  //countInStock: { type: Number, required: true, default: 0 }, 
 }, { timestamps: true });
 
 module.exports = mongoose.model('Product', productSchema);

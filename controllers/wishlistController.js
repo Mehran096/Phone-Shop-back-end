@@ -36,9 +36,9 @@ const getWishlist = asyncHandler(async (req, res) => {
 const addToWishlist = asyncHandler(async (req, res) => {
   const { product, name, color, hexCode, image, price, countInStock } = req.body
 //console.log('Backend received:', req.body.hexCode)
-  if (!product || !name || !color || !image || !price || !hexCode) {
+  if (!product || !name || !color || !image || !price ) {
     res.status(400)
-    throw new Error('Missing required fields: product, name, color, image, price, hexCode')
+    throw new Error('Missing required fields: product, name, color, image, price')
   }
 
   const user = await User.findById(req.user._id)

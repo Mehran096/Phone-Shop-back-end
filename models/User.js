@@ -29,7 +29,7 @@ const userSchema = mongoose.Schema({
       image: { type: String, required: true },
       price: { type: Number, required: true },
       color: { type: String, required: true },
-      hexCode: { type: String, required: true },
+      hexCode: { type: String },
       countInStock: { type: Number, required: true, default: 0 }, // Add this
     qty: { type: Number, required: true, default: 1 }, // Add this
     }

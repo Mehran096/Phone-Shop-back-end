@@ -96,7 +96,7 @@ const dbOrderItems = validOrderItems.map((itemFromClient) => {
     name: matchingItemFromDB.name,
     qty: itemFromClient.qty,
     image: colorVariant.images[0],
-    price: matchingItemFromDB.price, // Always use DB price
+    price: colorVariant.price, // Always use DB price
     color: itemFromClient.color,
     hexCode: itemFromClient.hexCode,
     product: matchingItemFromDB._id, // ← Use DB _id, not client product
@@ -593,7 +593,7 @@ if (missingProducts.length > 0) {
   name: matchingItemFromDB.name,
   qty: itemFromClient.qty,
   image: colorVariant.images[0], // FALLBACK TO CLIENT
-  price: matchingItemFromDB.price, // Keep DB price for security
+  price: colorVariant.price, // Keep DB price for security
   product: itemFromClient.product,
   color: itemFromClient.color,
   hexCode: itemFromClient.hexCode,

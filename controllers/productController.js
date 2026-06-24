@@ -26,7 +26,7 @@ const createProduct = asyncHandler(async (req, res) => {
     })
   }
   try {
-    const { name, price, brand, category, countInStock, description } = req.body
+    const { name, brand, category,  description } = req.body
 
     // Safe JSON parsing with fallbacks
     let colors = []
@@ -54,23 +54,23 @@ const createProduct = asyncHandler(async (req, res) => {
         name: color.name || '',
         hexCode: color.hexCode || '',
         countInStock: Number(color.countInStock) || 0,
-        price: color.price ? Number(color.price) : Number(price),
+        price: Number(color.price) || 0,
         images: colorFiles.map(file => file.path),
         imagePublicIds: colorFiles.map(file => file.filename),
       }
     })
 
-    const totalStock = colorsWithImages.length > 0
-      ? colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
-      : Number(countInStock) || 0
+    // const totalStock = colorsWithImages.length > 0
+    //   ? colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
+    //   : Number(countInStock) || 0
 
     const product = new Product({
       user: req.user._id,
       name,
-      price: Number(price),
+      //price: Number(price),
       brand,
       category,
-      countInStock: totalStock,
+      //countInStock: totalStock,
       description,
       specs,
       colors: colorsWithImages,
@@ -159,7 +159,7 @@ const updateProduct = asyncHandler(async (req, res) => {
     throw new Error('Product not found')
   }
 
-  const { name, price, description, brand, category, specs, countInStock } = req.body
+  const { name, description, brand, category, specs } = req.body
   // Fix specs update
   if (specs) {
     product.specs = {
@@ -199,30 +199,30 @@ const updateProduct = asyncHandler(async (req, res) => {
       name: color.name,
       hexCode: color.hexCode || '#000000',
       countInStock: Number(color.countInStock) || 0,
-      price: color.price ? Number(color.price) : Number(price),
+      price: Number(color.price) || 0,
       images: [...(color.images || []), ...newImageUrls],
       imagePublicIds: [...(color.imagePublicIds || []), ...newPublicIds],
     }
   })
 
   // 4. Handle MAIN image update - optional if you still use it
-  if (req.files?.image) {
-    if (product.imagePublicIds?.[0]) {
-      await cloudinary.uploader.destroy(product.imagePublicIds[0])
-    }
-    product.image = req.files.image[0].path
-    product.imagePublicIds = [req.files.image[0].filename]
-  }
+  // if (req.files?.image) {
+  //   if (product.imagePublicIds?.[0]) {
+  //     await cloudinary.uploader.destroy(product.imagePublicIds[0])
+  //   }
+  //   product.image = req.files.image[0].path
+  //   product.imagePublicIds = [req.files.image[0].filename]
+  // }
 
   // 5. Update product fields
   product.name = name || product.name
-  product.price = Number(price) || product.price
+  //product.price = Number(price) || product.price
   product.brand = brand || product.brand
   product.category = category || product.category
   product.description = description || product.description
   product.specs = parsedSpecs
   product.colors = colorsWithImages
-  product.countInStock = colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
+  //product.countInStock = colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
 
 
 
@@ -262,12 +262,12 @@ const deleteProduct = asyncHandler(async (req, res) => {
     }
 
     // 1. Main product image
-    if (product.imagePublicIds?.length > 0) {
-      product.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
-    } else if (product.image) {
-      const id = extractPublicId(product.image)
-      if (id) publicIdsToDelete.add(id)
-    }
+    // if (product.imagePublicIds?.length > 0) {
+    //   product.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
+    // } else if (product.image) {
+    //   const id = extractPublicId(product.image)
+    //   if (id) publicIdsToDelete.add(id)
+    // }
 
     // 2. All color images
     product.colors?.forEach(color => {
