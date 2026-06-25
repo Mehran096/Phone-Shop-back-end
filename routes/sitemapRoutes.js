@@ -7,6 +7,10 @@ router.get('/sitemap.xml', async (req, res) => {
   try {
     // Get all products with slug and updatedAt
     const products = await Product.find({}).select('slug updatedAt').lean()
+     
+    // console.log('=== SITEMAP DEBUG ===')
+    // console.log('Products count:', products.length)
+    // console.log('First 2 products:', products.slice(0, 2))
 
     // Get unique brands from your DB
     const brands = await Product.distinct('brand')
@@ -28,6 +32,10 @@ router.get('/sitemap.xml', async (req, res) => {
     <priority>0.8</priority>
   </url>`).join('')
 
+//   console.log('=== PRODUCT URLS DEBUG ===')
+// console.log('productUrls length:', productUrls.length)
+// console.log('First 100 chars:', productUrls.substring(0, 100))
+
     // Build full sitemap XML
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -39,7 +47,7 @@ router.get('/sitemap.xml', async (req, res) => {
   ${brandUrls}
   ${productUrls}
 </urlset>`
-
+//console.log('FINAL SITEMAP LENGTH:', sitemap.length)
     res.header('Content-Type', 'application/xml')
     res.send(sitemap)
   } catch (error) {
