@@ -99,6 +99,7 @@ const dbOrderItems = validOrderItems.map((itemFromClient) => {
     price: colorVariant.price, // Always use DB price
     color: itemFromClient.color,
     hexCode: itemFromClient.hexCode,
+    slug: matchingItemFromDB.slug,
     product: matchingItemFromDB._id, // ← Use DB _id, not client product
   }
 })
@@ -596,6 +597,7 @@ if (missingProducts.length > 0) {
   price: colorVariant.price, // Keep DB price for security
   product: itemFromClient.product,
   color: itemFromClient.color,
+  slug: itemFromClient.slug,
   hexCode: itemFromClient.hexCode,
 }
   })

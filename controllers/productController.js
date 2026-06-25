@@ -1,6 +1,7 @@
 const mongoose = require('mongoose')
 const asyncHandler = require('express-async-handler')
 const Product = require('../models/Product')
+const slugify = require('slugify')
 const User = require('../models/User')
 const { cloudinary } = require('../utils/cloudinary')
 
@@ -25,22 +26,31 @@ const createProduct = asyncHandler(async (req, res) => {
       message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
     })
   }
+
   try {
-    const { name, brand, category,  description } = req.body
+    const {
+      name,
+      brand,
+      category,
+      description,
+      metaTitle,
+      metaDescription,
+      keywords,
+    } = req.body
 
     // Safe JSON parsing with fallbacks
     let colors = []
-    let specs = []
+    let specs = {}
 
     try {
-      colors = req.body.colors ? JSON.parse(req.body.colors) : []
+      colors = req.body.colors? JSON.parse(req.body.colors) : []
     } catch (e) {
       res.status(400)
       throw new Error('Invalid colors format')
     }
 
     try {
-      specs = req.body.specs ? JSON.parse(req.body.specs) : []
+      specs = req.body.specs? JSON.parse(req.body.specs) : {}
     } catch (e) {
       res.status(400)
       throw new Error('Invalid specs format')
@@ -48,78 +58,115 @@ const createProduct = asyncHandler(async (req, res) => {
 
     const colorsWithImages = colors.map((color, idx) => {
       const fieldName = `colorImages-${idx}`
-      const colorFiles = req.files ? req.files[fieldName] || [] : []
+      const colorFiles = req.files? req.files[fieldName] || [] : []
 
       return {
         name: color.name || '',
-        hexCode: color.hexCode || '',
+        hexCode: color.hexCode || '#000000',
         countInStock: Number(color.countInStock) || 0,
         price: Number(color.price) || 0,
-        images: colorFiles.map(file => file.path),
-        imagePublicIds: colorFiles.map(file => file.filename),
+        images: colorFiles.map((file) => file.path),
+        imagePublicIds: colorFiles.map((file) => file.filename),
       }
     })
 
-    // const totalStock = colorsWithImages.length > 0
-    //   ? colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
-    //   : Number(countInStock) || 0
+    // Auto-generate slug from name
+    const productSlug = slugify(name, {
+      lower: true,
+      strict: true,
+      remove: /[*+~.()'"!:@]/g
+    })
+
+    // Auto-generate metaTitle if empty
+    const autoMetaTitle = metaTitle ||
+      `${name}${specs.storage? ' - ' + specs.storage : ''} | PhoneStore`
+
+    // Auto-generate metaDescription if empty
+    const autoMetaDescription = metaDescription ||
+      `Buy ${name} from ${brand}. ${description.slice(0, 120)}...`
+
+    // Parse keywords if sent as string
+    let parsedKeywords = []
+    if (keywords) {
+      try {
+        parsedKeywords = typeof keywords === 'string'
+         ? keywords.split(',').map(k => k.trim()).filter(Boolean)
+          : JSON.parse(keywords)
+      } catch (e) {
+        parsedKeywords = []
+      }
+    }
 
     const product = new Product({
       user: req.user._id,
       name,
-      //price: Number(price),
+      slug: productSlug,
       brand,
       category,
-      //countInStock: totalStock,
       description,
+      metaTitle: autoMetaTitle.slice(0, 60), // Google limit
+      metaDescription: autoMetaDescription.slice(0, 155), // Google limit
+      keywords: parsedKeywords,
       specs,
       colors: colorsWithImages,
+      image: colorsWithImages[0]?.images[0] || '', // main image for OG tags
       numReviews: 0,
       rating: 0,
     })
 
     const createdProduct = await product.save()
     res.status(201).json(createdProduct)
+
   } catch (error) {
     console.log('CREATE PRODUCT ERROR:', error)
+
+    // Handle duplicate slug error
+    if (error.code === 11000 && error.keyPattern?.slug) {
+      res.status(400)
+      throw new Error('Product with this name already exists. Change the name to generate a unique URL.')
+    }
+
     res.status(500).json({ message: error.message })
   }
 })
-// @desc Get all products
+// @desc Fetch all products
 // @route GET /api/products
 // @access Public
-//pagination and search
-// pagination and search
+//pagination & Search
 const getProducts = asyncHandler(async (req, res) => {
-  const pageSize = 8
+  const pageSize = Number(req.query.pageSize) || 8
   const page = Number(req.query.pageNumber) || 1
 
-  const { keyword, brand } = req.query // add brand here
+  const { keyword, brand, category } = req.query
 
   const searchFilter = keyword
     ? {
-      $and: keyword
-        .trim()
-        .split(' ')
-        .filter(Boolean)
-        .map((word) => ({
-          $or: [
-            { name: { $regex: word, $options: 'i' } },
-            { brand: { $regex: word, $options: 'i' } },
-            { category: { $regex: word, $options: 'i' } },
-            { 'colors.name': { $regex: word, $options: 'i' } },
-            { 'specs.storage': { $regex: word, $options: 'i' } },
-          ],
-        })),
-    }
+        $and: keyword
+          .trim()
+          .split(' ')
+          .filter(Boolean)
+          .map((word) => ({
+            $or: [
+              { name: { $regex: word, $options: 'i' } },
+              { brand: { $regex: word, $options: 'i' } },
+              { category: { $regex: word, $options: 'i' } },
+              { 'colors.name': { $regex: word, $options: 'i' } },
+              { 'specs.storage': { $regex: word, $options: 'i' } },
+              { keywords: { $regex: word, $options: 'i' } }, // <-- Added for SEO
+            ],
+          })),
+      }
     : {}
 
   const brandFilter = brand ? { brand: { $regex: brand, $options: 'i' } } : {}
+  const categoryFilter = category ? { category: { $regex: category, $options: 'i' } } : {}
 
-  const filter = { ...searchFilter, ...brandFilter } // combine both filters
+  const filter = { ...searchFilter, ...brandFilter, ...categoryFilter }
 
   const count = await Product.countDocuments(filter)
+  
   const products = await Product.find(filter)
+    .select('name slug brand category image rating numReviews colors specs metaTitle') // <-- Only send needed fields
     .limit(pageSize)
     .skip(pageSize * (page - 1))
     .sort({ createdAt: -1 })
@@ -127,7 +174,22 @@ const getProducts = asyncHandler(async (req, res) => {
   res.json({ products, page, pages: Math.ceil(count / pageSize) })
 })
 
-// @desc Get product by ID
+// @desc Fetch single product by slug
+// @route GET /api/products/slug/:slug
+// @access Public
+const getProductBySlug = asyncHandler(async (req, res) => {
+  const product = await Product.findOne({ slug: req.params.slug })
+    .populate('user', 'name') // optional: show who added it
+
+  if (product) {
+    res.json(product)
+  } else {
+    res.status(404)
+    throw new Error('Product not found')
+  }
+})
+
+// @desc Get product by ID - Keep for admin panel
 // @route GET /api/products/:id
 // @access Public
 const getProductById = asyncHandler(async (req, res) => {
@@ -152,6 +214,7 @@ const updateProduct = asyncHandler(async (req, res) => {
       message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
     })
   }
+
   const product = await Product.findById(req.params.id)
 
   if (!product) {
@@ -159,17 +222,18 @@ const updateProduct = asyncHandler(async (req, res) => {
     throw new Error('Product not found')
   }
 
-  const { name, description, brand, category, specs } = req.body
-  // Fix specs update
-  if (specs) {
-    product.specs = {
-      ...(product.specs ? product.specs.toObject() : {}),
-      ...specs,
-    }
-  }
+  const {
+    name,
+    brand,
+    category,
+    description,
+    metaTitle,
+    metaDescription,
+    keywords,
+  } = req.body
 
   // 1. Delete images from Cloudinary first
-  const imagesToDelete = req.body.imagesToDelete ? JSON.parse(req.body.imagesToDelete) : []
+  const imagesToDelete = req.body.imagesToDelete? JSON.parse(req.body.imagesToDelete) : []
   console.log('Deleting from Cloudinary:', imagesToDelete)
 
   if (imagesToDelete.length > 0) {
@@ -182,8 +246,22 @@ const updateProduct = asyncHandler(async (req, res) => {
   }
 
   // 2. Parse colors and specs from FormData
-  const colors = req.body.colors ? JSON.parse(req.body.colors) : []
-  const parsedSpecs = req.body.specs ? JSON.parse(req.body.specs) : []
+  let colors = []
+  let parsedSpecs = {}
+
+  try {
+    colors = req.body.colors? JSON.parse(req.body.colors) : []
+  } catch (e) {
+    res.status(400)
+    throw new Error('Invalid colors format')
+  }
+
+  try {
+    parsedSpecs = req.body.specs? JSON.parse(req.body.specs) : {}
+  } catch (e) {
+    res.status(400)
+    throw new Error('Invalid specs format')
+  }
 
   // 3. Handle COLORS + their images
   const colorsWithImages = colors.map((color, idx) => {
@@ -200,34 +278,58 @@ const updateProduct = asyncHandler(async (req, res) => {
       hexCode: color.hexCode || '#000000',
       countInStock: Number(color.countInStock) || 0,
       price: Number(color.price) || 0,
-      images: [...(color.images || []), ...newImageUrls],
-      imagePublicIds: [...(color.imagePublicIds || []), ...newPublicIds],
+      images: [...(color.images || []),...newImageUrls],
+      imagePublicIds: [...(color.imagePublicIds || []),...newPublicIds],
     }
   })
 
-  // 4. Handle MAIN image update - optional if you still use it
-  // if (req.files?.image) {
-  //   if (product.imagePublicIds?.[0]) {
-  //     await cloudinary.uploader.destroy(product.imagePublicIds[0])
-  //   }
-  //   product.image = req.files.image[0].path
-  //   product.imagePublicIds = [req.files.image[0].filename]
-  // }
+  // 4. Update slug if name changed
+  let newSlug = product.slug
+  if (name && name!== product.name) {
+    newSlug = slugify(name, {
+      lower: true,
+      strict: true,
+      remove: /[*+~.()'"!:@]/g
+    })
+  }
 
-  // 5. Update product fields
+  // 5. Parse keywords
+  let parsedKeywords = product.keywords
+  if (keywords) {
+    try {
+      parsedKeywords = typeof keywords === 'string'
+     ? keywords.split(',').map(k => k.trim()).filter(Boolean)
+        : JSON.parse(keywords)
+    } catch (e) {
+      parsedKeywords = product.keywords
+    }
+  }
+
+  // 6. Update product fields
   product.name = name || product.name
-  //product.price = Number(price) || product.price
+  product.slug = newSlug
   product.brand = brand || product.brand
   product.category = category || product.category
   product.description = description || product.description
+  product.metaTitle = metaTitle? metaTitle.slice(0, 60) : product.metaTitle
+  product.metaDescription = metaDescription? metaDescription.slice(0, 155) : product.metaDescription
+  product.keywords = parsedKeywords
   product.specs = parsedSpecs
   product.colors = colorsWithImages
-  //product.countInStock = colorsWithImages.reduce((acc, c) => acc + c.countInStock, 0)
+  product.image = colorsWithImages[0]?.images[0] || product.image
 
-
-
-  const updatedProduct = await product.save()
-  res.json(updatedProduct)
+  try {
+    const updatedProduct = await product.save()
+    res.json(updatedProduct)
+  } catch (error) {
+    console.log('UPDATE PRODUCT ERROR:', error)
+    // Handle duplicate slug error
+    if (error.code === 11000 && error.keyPattern?.slug) {
+      res.status(400)
+      throw new Error('Another product with this name already exists. Change the name.')
+    }
+    res.status(500).json({ message: error.message })
+  }
 })
 
 
@@ -243,6 +345,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
       message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
     })
   }
+
   const product = await Product.findById(req.params.id)
 
   if (!product) {
@@ -251,23 +354,20 @@ const deleteProduct = asyncHandler(async (req, res) => {
   }
 
   try {
-    const publicIdsToDelete = new Set() // Use Set to avoid duplicates
+    const publicIdsToDelete = new Set()
 
     // Helper to extract public_id from Cloudinary URL
     const extractPublicId = (url) => {
       if (!url) return null
-      // Handles: https://res.cloudinary.com/demo/image/upload/v1234/products/img.jpg
       const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
-      return matches ? matches[1] : null
+      return matches? matches[1] : null
     }
 
-    // 1. Main product image
-    // if (product.imagePublicIds?.length > 0) {
-    //   product.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
-    // } else if (product.image) {
-    //   const id = extractPublicId(product.image)
-    //   if (id) publicIdsToDelete.add(id)
-    // }
+    // 1. Main product image - for OG tags
+    if (product.image) {
+      const mainImageId = extractPublicId(product.image)
+      if (mainImageId) publicIdsToDelete.add(mainImageId)
+    }
 
     // 2. All color images
     product.colors?.forEach(color => {
@@ -282,13 +382,11 @@ const deleteProduct = asyncHandler(async (req, res) => {
       }
     })
 
-    // 3. All review images - THIS WAS MISSING
+    // 3. All review images
     product.reviews?.forEach(review => {
-      // Prefer stored publicIds
       if (review.imagePublicIds?.length > 0) {
         review.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
       }
-      // Fallback to URLs
       if (review.images?.length > 0) {
         review.images.forEach(url => {
           const id = extractPublicId(url)
@@ -300,11 +398,16 @@ const deleteProduct = asyncHandler(async (req, res) => {
     // Delete from Cloudinary - batch delete max 100 at a time
     const idsArray = [...publicIdsToDelete]
     if (idsArray.length > 0) {
-      // Cloudinary batch limit is 100
+      console.log(`Deleting ${idsArray.length} images from Cloudinary`)
       for (let i = 0; i < idsArray.length; i += 100) {
         const batch = idsArray.slice(i, i + 100)
-        await cloudinary.api.delete_resources(batch)
+        try {
+          await cloudinary.api.delete_resources(batch)
+        } catch (err) {
+          console.log('Cloudinary batch delete error:', err)
+        }
       }
+      console.log('Cloudinary delete complete')
     }
 
     // Delete product from DB
@@ -313,22 +416,21 @@ const deleteProduct = asyncHandler(async (req, res) => {
     // Clean up user carts and wishlists - prevents future nulls
     const productId = new mongoose.Types.ObjectId(req.params.id)
 
-   await User.updateMany(
-  { wishlist: productId }, // Use ObjectId here
-  { $pull: { wishlist: productId } }
-)
-await User.updateMany(
-  { 'cart.product': productId }, // And here
-  { $pull: { cart: { product: productId } } }
-)
+    await User.updateMany(
+      { wishlist: productId }, // Use ObjectId here
+      { $pull: { wishlist: productId } }
+    )
+    await User.updateMany(
+      { 'cart.product': productId }, // And here
+      { $pull: { cart: { product: productId } } }
+    )
 
     res.json({ message: 'Product and all images removed' })
 
   } catch (error) {
-  console.error('Delete product error:', error)
-  res.status(500).json({ message: error.message || 'Server error' })
-}
-
+    console.error('Delete product error:', error)
+    res.status(500).json({ message: error.message || 'Server error' })
+  }
 })
 
 // @desc Create new review
@@ -336,14 +438,22 @@ await User.updateMany(
 // @access Private
 const createProductReview = asyncHandler(async (req, res) => {
   const { rating, comment, color, images } = req.body // images = array of Cloudinary objects OR URLs
-  console.log('Backend got images:', images)
+   
+  //const product = await Product.findById(req.params.id)
+  let product = await Product.findOne({ slug: req.params.id })
+  
+if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+  product = await Product.findById(req.params.id)
+}
 
-  const product = await Product.findById(req.params.id)
+ 
 
   if (product) {
     const alreadyReviewed = product.reviews.find(
       (r) => r.user.toString() === req.user._id.toString() && r.color === color
     )
+
+     
 
     if (alreadyReviewed) {
       res.status(400)
@@ -351,12 +461,12 @@ const createProductReview = asyncHandler(async (req, res) => {
     }
 
     const review = {
-      name: req.user.name,
-      rating: Number(rating),
-      comment,
-      user: req.user._id,
-      color,
-      images: [],
+     name: req.user.name || req.user.email?.split('@')[0] || 'User',
+  rating: Number(rating),
+  comment,
+  user: req.user._id,
+  color: color || 'Default',
+  images: images || [],
       imagePublicIds: [], // ADD THIS
     }
 
@@ -404,7 +514,11 @@ const getProductReviews = asyncHandler(async (req, res) => {
 
   const { color, sort } = req.query;
 
-  const product = await Product.findById(req.params.id);
+  //const product = await Product.findById(req.params.id);
+  let product = await Product.findOne({ slug: req.params.id })
+if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+  product = await Product.findById(req.params.id)
+}
 
   if (!product) {
     res.status(404);
@@ -455,7 +569,11 @@ const getProductReviews = asyncHandler(async (req, res) => {
 const updateProductReview = asyncHandler(async (req, res) => {
   const { rating, comment, images } = req.body
 
-  const product = await Product.findById(req.params.id)
+  //const product = await Product.findById(req.params.id)
+  let product = await Product.findOne({ slug: req.params.id })
+if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+  product = await Product.findById(req.params.id)
+}
   if (!product) {
     res.status(404)
     throw new Error('Product not found')
@@ -552,7 +670,11 @@ const updateProductReview = asyncHandler(async (req, res) => {
 // @route DELETE /api/products/:id/reviews/:reviewId
 // @access Private
 const deleteProductReview = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id)
+  //const product = await Product.findById(req.params.id)
+  let product = await Product.findOne({ slug: req.params.id })
+if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+  product = await Product.findById(req.params.id)
+}
 
   if (!product) {
     res.status(404)
@@ -619,7 +741,11 @@ const deleteProductReview = asyncHandler(async (req, res) => {
 // @route PUT /api/products/:id/reviews/:reviewId/helpful
 // @access Private
 const markReviewHelpful = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id);
+  //const product = await Product.findById(req.params.id);
+  let product = await Product.findOne({ slug: req.params.id })
+if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+  product = await Product.findById(req.params.id)
+}
 
   if (product) {
     const review = product.reviews.id(req.params.reviewId);
@@ -660,7 +786,11 @@ const markReviewHelpful = asyncHandler(async (req, res) => {
 // @access Private/Admin
 const addAdminReply = asyncHandler(async (req, res) => {
   const { reply: replyText } = req.body; // <-- Only get reply from body
-  const product = await Product.findById(req.params.id); // productId from URL
+  //const product = await Product.findById(req.params.id); // productId from URL
+  let product = await Product.findOne({ slug: req.params.id })
+if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+  product = await Product.findById(req.params.id)
+}
   const reviewId = req.params.reviewId; // <-- Get reviewId from URL params
 
   if (!product) {
@@ -691,7 +821,11 @@ const addAdminReply = asyncHandler(async (req, res) => {
 const editAdminReply = asyncHandler(async (req, res) => {
   const { reply } = req.body; // <-- Only get reply from body
   const reviewId = req.params.reviewId; // <-- Get from URL params
-  const product = await Product.findById(req.params.id);
+  //const product = await Product.findById(req.params.id);
+  let product = await Product.findOne({ slug: req.params.id })
+if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+  product = await Product.findById(req.params.id)
+}
 
   if (!product) {
     res.status(404);
@@ -717,7 +851,11 @@ const editAdminReply = asyncHandler(async (req, res) => {
 // @access Private/Admin
 const deleteAdminReply = asyncHandler(async (req, res) => {
   const reviewId = req.params.reviewId; // <-- Get from URL params, not body
-  const product = await Product.findById(req.params.id);
+  //const product = await Product.findById(req.params.id);
+  let product = await Product.findOne({ slug: req.params.id })
+if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+  product = await Product.findById(req.params.id)
+}
 
   if (!product) {
     res.status(404);
@@ -764,6 +902,7 @@ module.exports = {
   createProduct,
   getProducts,
   getProductById,
+  getProductBySlug,
   updateProduct,
   deleteProduct,
   createProductReview,

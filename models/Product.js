@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const slugify = require('slugify');
 
 const reviewSchema = mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -20,8 +21,15 @@ const reviewSchema = mongoose.Schema({
 const productSchema = mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // admin who added it
   name: { type: String, required: true }, // iPhone 15 Pro
+   slug: { type: String, unique: true, lowercase: true }, // iphone-15-pro
   brand: { type: String, required: true }, // Apple, Samsung, Google
   category: { type: String}, // ADD THIS
+
+  // SEO fields
+  metaTitle: { type: String }, // "iPhone 15 Pro 256GB - Best Price | PhoneStore"
+  metaDescription: { type: String }, // 155 chars max
+  keywords: [{ type: String }], // ['iphone 15 pro', 'apple phone', '256gb']
+
   image: { type: String}, // main image URL
   //images: { type: [String], default: [] }, // gallery
   //imagePublicIds: { type: [String], default: [] },
@@ -52,5 +60,16 @@ numReviews: { type: Number, required: true, default: 0 },
   //price: { type: Number, required: true, default: 0 },
   //countInStock: { type: Number, required: true, default: 0 }, 
 }, { timestamps: true });
+
+// Auto-generate slug from name
+productSchema.pre('save', async function () { // No next parameter needed
+  if (this.isModified('name') && !this.slug) {
+    this.slug = this.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+  }
+  // Don't call next() when using async function
+})
 
 module.exports = mongoose.model('Product', productSchema);

@@ -7,12 +7,14 @@ const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const cookieParser = require('cookie-parser');
 //const jazzcashRoutes = require('./routes/jazzcashRoutes.js');
 const multer = require('multer') 
+const compression = require('compression')
 const userRoutes = require('./routes/userRoutes');
 const productRoutes = require('./routes/productRoutes');
 const { cloudinary } = require('./utils/cloudinary') 
 const orderRoutes = require('./routes/orderRoutes'); 
 const contactRoutes = require('./routes/contactRoutes.js');
 const uploadRoutes = require('./routes/uploadRoutes.js');
+const sitemapRoutes = require('./routes/sitemapRoutes.js' )
 const Stripe = require('stripe');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
   const Order = require('./models/orderModel.js');
@@ -208,6 +210,7 @@ app.get('/', (req, res) => {
 });
 
 app.use(cookieParser());
+app.use(compression())
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 
@@ -215,6 +218,8 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/contact', contactRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/upload', uploadRoutes);
+app.use('/api', sitemapRoutes)
+app.use(express.static('public', { maxAge: '1y' }))
 
 // Error handling middleware - must be last
 app.use(notFound);

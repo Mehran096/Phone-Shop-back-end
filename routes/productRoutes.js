@@ -4,6 +4,7 @@ const {
   createProduct,
   getProducts,
   getProductById,
+  getProductBySlug,
   updateProduct,
   deleteProduct,
   createProductReview,
@@ -32,6 +33,8 @@ const colorFields = Array.from({ length: 10 }, (_, i) => ({
 router.route('/')
   .get(getProducts)
   .post(protect, admin, upload.fields(colorFields), createProduct)
+
+  router.route('/slug/:slug').get(getProductBySlug)
 
 router.route('/:id')
   .get(getProductById)
