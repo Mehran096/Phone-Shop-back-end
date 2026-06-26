@@ -215,7 +215,19 @@ app.get('/robots.txt', (req, res) => {
   res.send(`User-agent: *
 Allow: /
 
-Sitemap: https://phone-shop-back-end.onrender.com/api/sitemap.xml
+Disallow: /cart
+Disallow: /checkout
+Disallow: /payment
+Disallow: /login
+Disallow: /register
+Disallow: /profile
+Disallow: /orders
+Disallow: /admin
+Disallow: /products?*
+Disallow: /*?sort=
+Disallow: /*?price=
+
+Sitemap: https://www.phone-store.asia/api/sitemap.xml
 `);
 });
 
