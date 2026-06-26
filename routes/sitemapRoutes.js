@@ -1,58 +1,53 @@
-// server/routes/sitemapRoutes.js
 const express = require('express')
 const Product = require('../models/Product.js')
 const router = express.Router()
 
 router.get('/sitemap.xml', async (req, res) => {
   try {
-    // Get all products with slug and updatedAt
-    const products = await Product.find({}).select('slug updatedAt').lean()
-     
+    const products = await Product.find({ 
+      slug: { $exists: true, $ne: null, $ne: "" } 
+    }).select('slug updatedAt').lean()
+    
+    const brands = await Product.distinct('brand')
+    
     // console.log('=== SITEMAP DEBUG ===')
     // console.log('Products count:', products.length)
-    // console.log('First 2 products:', products.slice(0, 2))
 
-    // Get unique brands from your DB
-    const brands = await Product.distinct('brand')
-
-    // Build brand filter URLs
     const brandUrls = brands.filter(Boolean).map(b => `
   <url>
-    <loc>https://phone-store.asia/?brand=${encodeURIComponent(b)}</loc>
+    <loc>https://www.phone-store.asia/?brand=${encodeURIComponent(b)}</loc>
     <changefreq>daily</changefreq>
     <priority>0.7</priority>
   </url>`).join('')
 
-    // Build product URLs
     const productUrls = products.map(p => `
   <url>
-    <loc>https://phone-store.asia/product/${p.slug}</loc>
+    <loc>https://www.phone-store.asia/product/${p.slug}</loc>
     <lastmod>${p.updatedAt ? new Date(p.updatedAt).toISOString() : new Date().toISOString()}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>`).join('')
 
-//   console.log('=== PRODUCT URLS DEBUG ===')
-// console.log('productUrls length:', productUrls.length)
-// console.log('First 100 chars:', productUrls.substring(0, 100))
-
-    // Build full sitemap XML
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://phone-store.asia</loc>
+    <loc>https://www.phone-store.asia</loc>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
-  </url>
-  ${brandUrls}
-  ${productUrls}
+  </url>${brandUrls}${productUrls}
 </urlset>`
-//console.log('FINAL SITEMAP LENGTH:', sitemap.length)
+
+    // console.log('productUrls length:', productUrls.length)
+    // console.log('FINAL SITEMAP LENGTH:', sitemap.length)
+    // console.log('SENDING SITEMAP WITH PRODUCTS:', sitemap.includes('/product/'))
+
     res.header('Content-Type', 'application/xml')
-    res.send(sitemap)
-  } catch (error) {
-    console.error('Sitemap error:', error)
-    res.status(500).send('Error generating sitemap')
+    res.header('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.send(sitemap)  // <-- ONLY THIS ONE
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).end()
   }
 })
 
