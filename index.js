@@ -209,6 +209,16 @@ app.get('/', (req, res) => {
   res.send('Phone Store API is running...');
 });
 
+// Add this robots.txt route HERE
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send(`User-agent: *
+Allow: /
+
+Sitemap: https://phone-shop-back-end.onrender.com/api/sitemap.xml
+`);
+});
+
 app.use(cookieParser());
 app.use(compression())
 app.use('/api/users', userRoutes);
