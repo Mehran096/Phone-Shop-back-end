@@ -218,7 +218,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/contact', contactRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/upload', uploadRoutes);
-app.use('/api', sitemapRoutes)
+app.use('/', sitemapRoutes)
 app.use(express.static('public', { maxAge: '1y' }))
 
 // Error handling middleware - must be last
