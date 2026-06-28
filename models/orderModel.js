@@ -15,6 +15,7 @@ const orderSchema = mongoose.Schema(
         price: { type: Number, required: true },
         slug: { type: String, required: true },
         color: { type: String, required: true },
+        storage: { type: String },
         hexCode: { type: String},
         product: {
           type: mongoose.Schema.Types.ObjectId,

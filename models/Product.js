@@ -6,70 +6,63 @@ const reviewSchema = mongoose.Schema({
   name: { type: String, required: true },
   rating: { type: Number, required: true },
   color: { type: String, required: true },
+  storage: { type: String }, 
   comment: { type: String, required: true },
   helpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  images: [String],
+  images: { type: [String], default: [] }, 
   imagePublicIds: { type: [String], default: [] },
-  adminReply: {
-    reply: String,
-    name: String,
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    createdAt: Date,
-  },
+  adminReply: { reply: String, name: String, user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, createdAt: Date },
 }, { timestamps: true });
+
+// V8.7 COLOR = GALLERY ONLY. NO hexCode, NO imageUrl
+const colorSchema = new mongoose.Schema({
+  name: { type: String, required: true }, // Black, Purple
+  price: { type: Number, required: true }, // V9.43 KEY: $999 per color
+  countInStock: { type: Number, required: true, default: 0 }, // V9.43 KEY: 5 per color
+  sku: { type: String }, // V9.43 KEY: SKU per color
+  images: [{ // V9.59 KEY: V9.47 Schema
+    url: { type: String, required: true },
+    imagePublicId: { type: String, required: true },
+  }],
+  imagePublicIds: [{ type: String }],
+}, { _id: false });
+
+// V9.43 KEY: VARIANT = STORAGE LEVEL ONLY
+const variantSchema = new mongoose.Schema({
+  storage: { type: String, required: true }, // "256GB"
+  specs: { type: Object, default: {} }, // V9.43 KEY: Add this for dynamic specs
+  description: { type: String, default: '' }, // V9.43 KEY: Add this for dynamic desc
+  colors: { type: [colorSchema], default: [] }, // V9.43 KEY: Colors now have price
+}, { _id: false });
 
 const productSchema = mongoose.Schema({
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // admin who added it
-  name: { type: String, required: true }, // iPhone 15 Pro
-   slug: { type: String, unique: true, lowercase: true }, // iphone-15-pro
-  brand: { type: String, required: true }, // Apple, Samsung, Google
-  category: { type: String}, // ADD THIS
+  user: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
+  name: { type: String, required: true },
+  slug: { type: String, required: true, unique: true, lowercase: true },
+  brand: { type: String, required: true },
+  category: { type: String, required: true },
+  description: { type: String },
+  metaTitle: String,
+  metaDescription: String,
+  keywords: [{ type: String }],
+  accessories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Accessory' }], 
+  specs: { ram: String, display: String, battery: String, camera: String },
 
-  // SEO fields
-  metaTitle: { type: String }, // "iPhone 15 Pro 256GB - Best Price | PhoneStore"
-  metaDescription: { type: String }, // 155 chars max
-  keywords: [{ type: String }], // ['iphone 15 pro', 'apple phone', '256gb']
+  // V8.7 NEW STRUCTURE ONLY. DELETED: price, image, images, colors
+  variants: { type: [variantSchema], default: [] }, 
 
-  image: { type: String}, // main image URL
-  //images: { type: [String], default: [] }, // gallery
-  //imagePublicIds: { type: [String], default: [] },
-  description: { type: String, required: true },
-  colors: {
-    type: [
-      {
-        name: { type: String, required: true }, // "Dry Ice Blue"
-        hexCode: { type: String, default: '#000000' }, // "#CBD5E1"
-        images: { type: [String], required: true },
-        imagePublicIds: { type: [String], default: [] },
-        countInStock: { type: Number, required: true, default: 0 },
-       price: { type: Number, required: true, default: 0 },  
-      }
-    ],
-    default: []
-  },
+  rating: { type: Number, required: true, default: 0 },
+  numReviews: { type: Number, required: true, default: 0 },
   reviews: [reviewSchema],
-rating: { type: Number, required: true, default: 0 },
-numReviews: { type: Number, required: true, default: 0 },
-  specs: {
-    storage: { type: String }, // 256GB
-    ram: { type: String }, // 8GB
-    display: { type: String }, // 6.1 inch OLED
-    battery: { type: String }, // 4000mAh
-    camera: { type: String } // 48MP Triple
-  },
-  //price: { type: Number, required: true, default: 0 },
-  //countInStock: { type: Number, required: true, default: 0 }, 
 }, { timestamps: true });
 
-// Auto-generate slug from name
-productSchema.pre('save', async function () { // No next parameter needed
-  if (this.isModified('name') && !this.slug) {
-    this.slug = this.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
+// V8.6 UNIQUE SLUG
+productSchema.pre('save', function() {
+  if (!this.slug && this.name) {
+    this.slug = `${slugify(this.name, { lower: true, strict: true })}-${Date.now()}`;
   }
-  // Don't call next() when using async function
-})
+  
+});
 
-module.exports = mongoose.model('Product', productSchema);
+const Product = mongoose.model('Product', productSchema);
+module.exports = Product;

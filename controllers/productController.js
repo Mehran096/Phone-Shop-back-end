@@ -19,126 +19,91 @@ const extractPublicIdFromUrl = (url) => {
 // @route POST /api/products
 // @access Private/Admin
 const createProduct = asyncHandler(async (req, res) => {
-  // Block demo admin from destructive actions
-  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
-  if (isDemoAdmin) {
-    return res.status(403).json({
-      message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
-    })
+  console.log('V9.47 BODY RECEIVED:', JSON.stringify(req.body, null, 2)); // Debug
+
+  const {
+    name, brand, category, metaTitle, metaDescription, // V9.47 KEY: No description/specs
+    keywords = [], accessories = [], variants = [],
+  } = req.body;
+
+  if (!name || !brand) { // V9.47 KEY: description removed
+    res.status(400);
+    throw new Error('Please add name and brand');
   }
 
+  if (!variants || variants.length === 0) {
+    res.status(400);
+    throw new Error('Please add at least 1 storage variant');
+  }
+
+  // V9.47 KEY: MAP PRICE/STOCK/SKU FROM COLOR LEVEL
+  const cleanVariants = variants
+    .map(v => ({
+      storage: v.storage,
+      specs: v.specs || {}, // V9.47 KEY: Per variant specs
+      description: v.description || '', // V9.47 KEY: Per variant desc
+      colors: (v.colors || [])
+        .filter(c => c.name && c.images?.length > 0) // Must have name + 1 image
+        .map(c => ({
+          name: c.name,
+          price: Number(c.price), // V9.47 KEY: SKU price
+          countInStock: Number(c.countInStock) || 0, // V9.47 KEY: SKU stock
+          sku: c.sku || '', // V9.47 KEY: SKU code
+          images: c.images,
+          imagePublicIds: c.imagePublicIds || [],
+        })),
+    }))
+    .filter(v => v.colors.length > 0); // Remove empty variants
+
+  if (cleanVariants.length === 0) {
+    res.status(400);
+    throw new Error('Each variant needs at least 1 color with 1 image');
+  }
+
+  // V9.47 KEY: SLUG + META FROM FIRST VARIANT
+  const baseSlug = slugify(name, { lower: true, strict: true, remove: /[*+~.()'"!:@]/g });
+  const productsSlug = `${baseSlug}-${Date.now()}`;
+
+  const autoMetaTitle = metaTitle || `${name} | ${brand} ${cleanVariants[0]?.storage || ''}`;
+  const autoMetaDescription = metaDescription || `Buy ${name} from ${brand}.`; // V9.47 KEY: No description
+
   try {
-    const {
-      name,
-      brand,
-      category,
-      description,
-      metaTitle,
-      metaDescription,
-      keywords,
-    } = req.body
-
-    // Safe JSON parsing with fallbacks
-    let colors = []
-    let specs = {}
-
-    try {
-      colors = req.body.colors? JSON.parse(req.body.colors) : []
-    } catch (e) {
-      res.status(400)
-      throw new Error('Invalid colors format')
-    }
-
-    try {
-      specs = req.body.specs? JSON.parse(req.body.specs) : {}
-    } catch (e) {
-      res.status(400)
-      throw new Error('Invalid specs format')
-    }
-
-    const colorsWithImages = colors.map((color, idx) => {
-      const fieldName = `colorImages-${idx}`
-      const colorFiles = req.files? req.files[fieldName] || [] : []
-
-      return {
-        name: color.name || '',
-        hexCode: color.hexCode || '#000000',
-        countInStock: Number(color.countInStock) || 0,
-        price: Number(color.price) || 0,
-        images: colorFiles.map((file) => file.path),
-        imagePublicIds: colorFiles.map((file) => file.filename),
-      }
-    })
-
-    // Auto-generate slug from name
-    const productSlug = slugify(name, {
-      lower: true,
-      strict: true,
-      remove: /[*+~.()'"!:@]/g
-    })
-
-    // Auto-generate metaTitle if empty
-    const autoMetaTitle = metaTitle ||
-      `${name}${specs.storage? ' - ' + specs.storage : ''} | PhoneStore`
-
-    // Auto-generate metaDescription if empty
-    const autoMetaDescription = metaDescription ||
-      `Buy ${name} from ${brand}. ${description.slice(0, 120)}...`
-
-    // Parse keywords if sent as string
-    let parsedKeywords = []
-    if (keywords) {
-      try {
-        parsedKeywords = typeof keywords === 'string'
-         ? keywords.split(',').map(k => k.trim()).filter(Boolean)
-          : JSON.parse(keywords)
-      } catch (e) {
-        parsedKeywords = []
-      }
-    }
-
     const product = new Product({
       user: req.user._id,
       name,
-      slug: productSlug,
+      slug: productsSlug,
       brand,
       category,
-      description,
-      metaTitle: autoMetaTitle.slice(0, 60), // Google limit
-      metaDescription: autoMetaDescription.slice(0, 155), // Google limit
-      keywords: parsedKeywords,
-      specs,
-      colors: colorsWithImages,
-      image: colorsWithImages[0]?.images[0] || '', // main image for OG tags
+      // description: REMOVED V9.47 KEY
+      metaTitle: autoMetaTitle.slice(0, 60),
+      metaDescription: autoMetaDescription.slice(0, 155),
+      keywords,
+      accessories,
+      // specs: REMOVED V9.47 KEY
+      variants: cleanVariants, // V9.47 KEY: All data lives here
       numReviews: 0,
       rating: 0,
-    })
+    });
 
-    const createdProduct = await product.save()
-    res.status(201).json(createdProduct)
-
+    const createdProduct = await product.save();
+    res.status(201).json(createdProduct);
   } catch (error) {
-    console.log('CREATE PRODUCT ERROR:', error)
-
-    // Handle duplicate slug error
-    if (error.code === 11000 && error.keyPattern?.slug) {
-      res.status(400)
-      throw new Error('Product with this name already exists. Change the name to generate a unique URL.')
-    }
-
-    res.status(500).json({ message: error.message })
+    console.error('REAL MONGOOSE ERROR:', error);
+    res.status(400);
+    throw new Error(error.message);
   }
-})
-// @desc Fetch all products
-// @route GET /api/products
-// @access Public
-//pagination & Search
+});
+
+// @desc    Fetch all products with filters
+// @route   GET /api/products
+// @access  Public
 const getProducts = asyncHandler(async (req, res) => {
-  const pageSize = Number(req.query.pageSize) || 8
-  const page = Number(req.query.pageNumber) || 1
+  const pageSize = Number(req.query.pageSize) || 8;
+  const page = Number(req.query.pageNumber) || 1;
 
-  const { keyword, brand, category } = req.query
+  const { keyword, brand, category, minPrice, maxPrice, storage } = req.query;
 
+  // 1. Search Filter: V9.51 KEY = variants.storage + variants.colors.name
   const searchFilter = keyword
     ? {
         $and: keyword
@@ -150,288 +115,277 @@ const getProducts = asyncHandler(async (req, res) => {
               { name: { $regex: word, $options: 'i' } },
               { brand: { $regex: word, $options: 'i' } },
               { category: { $regex: word, $options: 'i' } },
-              { 'colors.name': { $regex: word, $options: 'i' } },
-              { 'specs.storage': { $regex: word, $options: 'i' } },
-              { keywords: { $regex: word, $options: 'i' } }, // <-- Added for SEO
+              { keywords: { $regex: word, $options: 'i' } },
+              { 'variants.storage': { $regex: word, $options: 'i' } }, // V9.51 KEY
+              { 'variants.colors.name': { $regex: word, $options: 'i' } }, // V9.51 KEY
             ],
           })),
       }
-    : {}
+    : {};
 
-  const brandFilter = brand ? { brand: { $regex: brand, $options: 'i' } } : {}
-  const categoryFilter = category ? { category: { $regex: category, $options: 'i' } } : {}
+  // 2. Other Filters
+  const brandFilter = brand ? { brand: { $regex: brand, $options: 'i' }} : {};
+  const categoryFilter = category ? { category: { $regex: category, $options: 'i' }} : {};
 
-  const filter = { ...searchFilter, ...brandFilter, ...categoryFilter }
+  // 3. Storage Filter: V9.51 KEY = Exact match 256GB
+  const storageFilter = storage
+    ? { 'variants.storage': { $regex: `^${storage}$`, $options: 'i' }}
+    : {};
 
-  const count = await Product.countDocuments(filter)
-  
+  // 4. Price Filter: V9.51 KEY = $elemMatch on variants.colors.price
+  const priceFilter =
+    minPrice || maxPrice
+      ? {
+          'variants.colors': { 
+            $elemMatch: {
+              price: {
+                ...(minPrice && { $gte: Number(minPrice) }),
+                ...(maxPrice && { $lte: Number(maxPrice) }),
+              },
+            },
+          },
+        }
+      : {};
+
+  const filter = { ...searchFilter, ...brandFilter, ...categoryFilter, ...storageFilter, ...priceFilter };
+
+  const count = await Product.countDocuments(filter);
+
+  // 3. Select: V9.51 KEY = Removed `specs` + `price` root
   const products = await Product.find(filter)
-    .select('name slug brand category image rating numReviews colors specs metaTitle') // <-- Only send needed fields
+    .populate('accessories', 'name slug price image type') // FBT
+    .select('name slug brand category image rating numReviews variants metaTitle') // V9.51 KEY: No specs
     .limit(pageSize)
     .skip(pageSize * (page - 1))
-    .sort({ createdAt: -1 })
+    .sort({ createdAt: -1 });
 
-  res.json({ products, page, pages: Math.ceil(count / pageSize) })
-})
+  // 4. Frontend helper: V9.51 KEY = Min price from all Colors for shop card
+  const productsWithMin = products.map(p => {
+    const allColors = p.variants?.flatMap(v => v.colors) || []; // V9.51 KEY: Flatten all SKUs
+    const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name
+    
+    const minColor = allColors.length > 0
+      ? allColors.reduce((min, c) => c.price < min.price ? c : min, allColors[0]) // V9.51 KEY
+      : { price: 0, countInStock: 0 };
+
+    return {
+      ...p.toObject(),
+      minPrice: minColor.price, // V9.51 KEY: Card shows $999 From
+      minStock: minColor.countInStock, // V9.51 KEY: Optional badge
+      colors: uniqueColors, // V9.51 KEY: All colors for swatches
+    };
+  });
+
+  res.json({ products: productsWithMin, page, pages: Math.ceil(count / pageSize) });
+});
 
 // @desc Fetch single product by slug
 // @route GET /api/products/slug/:slug
 // @access Public
 const getProductBySlug = asyncHandler(async (req, res) => {
   const product = await Product.findOne({ slug: req.params.slug })
-    .populate('user', 'name') // optional: show who added it
+   .populate('user', 'name') // who added it
+   .populate('accessories', 'name slug price image type countInStock'); // FBT
 
   if (product) {
-    res.json(product)
-  } else {
-    res.status(404)
-    throw new Error('Product not found')
-  }
-})
+    // V9.48 KEY: NO MORE V8 FALLBACKS. SEND RAW DB DATA
+    // Frontend V9.39+ logic: 
+    // const selectedVariant = product.variants[selectedVariantIndex];
+    // const selectedColor = selectedVariant.colors[selectedColorIndex];
+    // const finalPrice = selectedColor.price;
 
-// @desc Get product by ID - Keep for admin panel
-// @route GET /api/products/:id
-// @access Public
+    const allColors = product.variants?.flatMap(v => v.colors) || []; // V9.48 KEY: Flatten all colors for swatch UI
+    const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name, keep first
+
+    const productData = {
+     ...product.toObject(),
+      // V9.48 KEY: Only helper = all unique colors. No fake price/stock/root fields
+      colors: uniqueColors, 
+    };
+
+    res.json(productData);
+  } else {
+    res.status(404);
+    throw new Error('Product not found');
+  }
+});
+
+// @desc    Get product by ID - Keep for admin panel
+// @route   GET /api/products/:id
+// @access  Public
 const getProductById = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id)
+    .populate('accessories', 'name slug price image type countInStock');
 
   if (product) {
-    res.json(product)
-  } else {
-    res.status(404)
-    throw new Error('Product not found')
-  }
-})
+    // V9.49 KEY: ADMIN = SAME RAW DATA AS FRONTEND. NO V8 FALLBACKS
+    // Admin form should loop: product.variants.map(v => v.colors.map(c => c.price))
 
-// @desc Update product
+    const allColors = product.variants?.flatMap(v => v.colors) || []; // V9.49 KEY: Flatten for swatch table
+    const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name, keep first
+
+    const productData = {
+     ...product.toObject(),
+      // V9.49 KEY: Only helper = all unique colors. No fake price/stock/root fields
+      colors: uniqueColors, 
+    };
+
+    res.json(productData);
+  } else {
+    res.status(404);
+    throw new Error('Product not found');
+  }
+});
+
+// // @desc Get product by ID - Keep for admin panel
+// // @route GET /api/products/:id
+// // @access Public
+// const getProductById = asyncHandler(async (req, res) => {
+//   const product = await Product.findById(req.params.id)
+
+//   if (product) {
+//     res.json(product)
+//   } else {
+//     res.status(404)
+//     throw new Error('Product not found')
+//   }
+// })
+
+// @desc Update a product
 // @route PUT /api/products/:id
 // @access Private/Admin
 const updateProduct = asyncHandler(async (req, res) => {
-  // Block demo admin from destructive actions
-  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
-  if (isDemoAdmin) {
-    return res.status(403).json({
-      message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
-    })
+  const { name, brand, category, description, variants, accessories, keywords, metaTitle, metaDescription } = req.body; // V9.52 KEY: Removed `specs`
+
+  const product = await Product.findById(req.params.id);
+  if (!product) { res.status(404); throw new Error('Product not found'); }
+
+  // V9.52 KEY 1: Nuke Cloudinary images that admin removed
+  const oldPublicIds = product.variants.flatMap(v => v.colors.flatMap(c => c.imagePublicIds || []));
+  const newPublicIds = variants?.flatMap(v => v.colors.flatMap(c => c.imagePublicIds || [])) || [];
+  const toDelete = oldPublicIds.filter(id => id &&!newPublicIds.includes(id));
+  if (toDelete.length > 0) {
+    await Promise.allSettled(toDelete.map(id => cloudinary.uploader.destroy(id)));
   }
 
-  const product = await Product.findById(req.params.id)
+  if (!variants || variants.length === 0) { res.status(400); throw new Error('Please add at least 1 variant'); }
 
-  if (!product) {
-    res.status(404)
-    throw new Error('Product not found')
-  }
-
-  const {
-    name,
-    brand,
-    category,
-    description,
-    metaTitle,
-    metaDescription,
-    keywords,
-  } = req.body
-
-  // 1. Delete images from Cloudinary first
-  const imagesToDelete = req.body.imagesToDelete? JSON.parse(req.body.imagesToDelete) : []
-  console.log('Deleting from Cloudinary:', imagesToDelete)
-
-  if (imagesToDelete.length > 0) {
-    try {
-      await cloudinary.api.delete_resources(imagesToDelete)
-      console.log('Cloudinary delete success')
-    } catch (err) {
-      console.log('Cloudinary delete error:', err)
-    }
-  }
-
-  // 2. Parse colors and specs from FormData
-  let colors = []
-  let parsedSpecs = {}
-
-  try {
-    colors = req.body.colors? JSON.parse(req.body.colors) : []
-  } catch (e) {
-    res.status(400)
-    throw new Error('Invalid colors format')
-  }
-
-  try {
-    parsedSpecs = req.body.specs? JSON.parse(req.body.specs) : {}
-  } catch (e) {
-    res.status(400)
-    throw new Error('Invalid specs format')
-  }
-
-  // 3. Handle COLORS + their images
-  const colorsWithImages = colors.map((color, idx) => {
-    const fieldName = `colorImages-${idx}`
-    const newColorFiles = req.files?.[fieldName] || []
-
-    const newImageUrls = newColorFiles.map(file => file.path)
-    const newPublicIds = newColorFiles.map(file => file.filename)
-
-    // color.images and color.imagePublicIds already have deleted images removed
-    // because frontend sent the filtered arrays
-    return {
-      name: color.name,
-      hexCode: color.hexCode || '#000000',
-      countInStock: Number(color.countInStock) || 0,
-      price: Number(color.price) || 0,
-      images: [...(color.images || []),...newImageUrls],
-      imagePublicIds: [...(color.imagePublicIds || []),...newPublicIds],
-    }
-  })
-
-  // 4. Update slug if name changed
-  let newSlug = product.slug
+  // V9.52 KEY 2: Slug update
   if (name && name!== product.name) {
-    newSlug = slugify(name, {
-      lower: true,
-      strict: true,
-      remove: /[*+~.()'"!:@]/g
-    })
+    product.slug = slugify(name, { lower: true, strict: true, remove: /[*+~.()'"!:@]/g });
   }
 
-  // 5. Parse keywords
-  let parsedKeywords = product.keywords
-  if (keywords) {
-    try {
-      parsedKeywords = typeof keywords === 'string'
-     ? keywords.split(',').map(k => k.trim()).filter(Boolean)
-        : JSON.parse(keywords)
-    } catch (e) {
-      parsedKeywords = product.keywords
-    }
-  }
+  // V9.52 KEY 3: Direct assign. NO `specs` root. NO Multer.
+  product.name = name;
+  product.brand = brand;
+  product.category = category;
+  product.description = description;
+  // product.specs = specs; // V9.52 KEY: DELETED ❌ specs is now variant.specs
+  product.accessories = accessories; // array
+  product.keywords = keywords; // array
+  product.metaTitle = metaTitle?.slice(0, 60) || '';
+  product.metaDescription = metaDescription?.slice(0, 160) || '';
+  product.variants = variants; // V9 structure: variants[0].specs = {ram: '8GB'}
 
-  // 6. Update product fields
-  product.name = name || product.name
-  product.slug = newSlug
-  product.brand = brand || product.brand
-  product.category = category || product.category
-  product.description = description || product.description
-  product.metaTitle = metaTitle? metaTitle.slice(0, 60) : product.metaTitle
-  product.metaDescription = metaDescription? metaDescription.slice(0, 155) : product.metaDescription
-  product.keywords = parsedKeywords
-  product.specs = parsedSpecs
-  product.colors = colorsWithImages
-  product.image = colorsWithImages[0]?.images[0] || product.image
-
-  try {
-    const updatedProduct = await product.save()
-    res.json(updatedProduct)
-  } catch (error) {
-    console.log('UPDATE PRODUCT ERROR:', error)
-    // Handle duplicate slug error
-    if (error.code === 11000 && error.keyPattern?.slug) {
-      res.status(400)
-      throw new Error('Another product with this name already exists. Change the name.')
-    }
-    res.status(500).json({ message: error.message })
-  }
-})
+  const updatedProduct = await product.save();
+  res.json(updatedProduct);
+});
 
 
 
-// @desc Delete a product + all Cloudinary images
+// @desc Delete a product
 // @route DELETE /api/products/:id
 // @access Private/Admin
 const deleteProduct = asyncHandler(async (req, res) => {
-  // Block demo admin from destructive actions
-  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com';
   if (isDemoAdmin) {
-    return res.status(403).json({
-      message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
-    })
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' });
   }
 
-  const product = await Product.findById(req.params.id)
-
+  const product = await Product.findById(req.params.id);
   if (!product) {
-    res.status(404)
-    throw new Error('Product not found')
+    res.status(404);
+    throw new Error('Product not found');
   }
 
   try {
-    const publicIdsToDelete = new Set()
+    const publicIdsToDelete = new Set();
 
-    // Helper to extract public_id from Cloudinary URL
+    // DEBUG: See what we have in DB
+    //console.log('DB product.variants:', JSON.stringify(product.variants, null, 2));
+
+    // Helper to extract public_id from Cloudinary URL. Handles v123/folder/file.jpg?v=1
     const extractPublicId = (url) => {
-      if (!url) return null
-      const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
-      return matches? matches[1] : null
-    }
+      if (!url) return null;
+      // Grabs everything between /upload/ and .jpg/.png/.webp, ignores ?v=...
+      const matches = url.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.\w+)?(?:\?.*)?$/); 
+      return matches? matches[1] : null;
+    };
 
     // 1. Main product image - for OG tags
     if (product.image) {
-      const mainImageId = extractPublicId(product.image)
-      if (mainImageId) publicIdsToDelete.add(mainImageId)
+      const mainImageId = extractPublicId(product.image);
+      if (mainImageId) publicIdsToDelete.add(mainImageId);
     }
 
-    // 2. All color images
-    product.colors?.forEach(color => {
-      if (color.imagePublicIds?.length > 0) {
-        color.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
-      } else {
-        // Fallback: extract from URLs for old images
-        color.images?.forEach(url => {
-          const id = extractPublicId(url)
-          if (id) publicIdsToDelete.add(id)
-        })
-      }
-    })
+    // 2. All VARIANT -> COLOR images
+    product.variants?.forEach((variant) => {
+      variant.colors?.forEach((color) => {
+        if (color.imagePublicIds?.length > 0) {
+          // NEW products: use stored public_ids. 100% accurate.
+          color.imagePublicIds.forEach((id) => publicIdsToDelete.add(id));
+        } else {
+          // FALLBACK: OLD products that only have URLs
+          color.images?.forEach((url) => {
+            const id = extractPublicId(url);
+            if (id) publicIdsToDelete.add(id);
+          });
+        }
+      });
+    });
 
-    // 3. All review images
-    product.reviews?.forEach(review => {
+    // 3. All review images 
+    product.reviews?.forEach((review) => {
       if (review.imagePublicIds?.length > 0) {
-        review.imagePublicIds.forEach(id => publicIdsToDelete.add(id))
+        review.imagePublicIds.forEach((id) => publicIdsToDelete.add(id));
       }
-      if (review.images?.length > 0) {
-        review.images.forEach(url => {
-          const id = extractPublicId(url)
-          if (id) publicIdsToDelete.add(id)
-        })
-      }
-    })
+    });
 
-    // Delete from Cloudinary - batch delete max 100 at a time
-    const idsArray = [...publicIdsToDelete]
+    // 4. Delete from Cloudinary - batch 100
+    const idsArray = [...publicIdsToDelete];
+    //console.log('IDS TO DELETE FROM CLOUDINARY:', idsArray); // <-- THIS TELLS US EVERYTHING
     if (idsArray.length > 0) {
-      console.log(`Deleting ${idsArray.length} images from Cloudinary`)
+      console.log(`Deleting ${idsArray.length} images from Cloudinary`);
       for (let i = 0; i < idsArray.length; i += 100) {
-        const batch = idsArray.slice(i, i + 100)
+        const batch = idsArray.slice(i, i + 100);
         try {
-          await cloudinary.api.delete_resources(batch)
+          const result = await cloudinary.api.delete_resources(batch);
+          //console.log('Cloudinary delete result:', result); // <-- SEE WHAT CLOUDINARY DID
         } catch (err) {
-          console.log('Cloudinary batch delete error:', err)
+          console.log('Cloudinary batch delete error:', err);
         }
       }
-      console.log('Cloudinary delete complete')
+    } else {
+      console.log('No images to delete. Set is empty.');
     }
 
-    // Delete product from DB
-    await product.deleteOne()
+    // 5. Delete product from DB
+    await product.deleteOne();
 
-    // Clean up user carts and wishlists - prevents future nulls
-    const productId = new mongoose.Types.ObjectId(req.params.id)
+    // 6. Clean up user carts and wishlists so no dead links
+    const productId = new mongoose.Types.ObjectId(req.params.id);
+    await User.updateMany({ wishlist: productId }, { $pull: { wishlist: productId } });
+    await User.updateMany({ 'cart.product': productId }, { $pull: { cart: { product: productId } }});
 
-    await User.updateMany(
-      { wishlist: productId }, // Use ObjectId here
-      { $pull: { wishlist: productId } }
-    )
-    await User.updateMany(
-      { 'cart.product': productId }, // And here
-      { $pull: { cart: { product: productId } } }
-    )
-
-    res.json({ message: 'Product and all images removed' })
+    res.json({ message: 'Product and all images removed' });
 
   } catch (error) {
-    console.error('Delete product error:', error)
-    res.status(500).json({ message: error.message || 'Server error' })
+    console.error('Delete product error:', error);
+    // Failsafe: Still delete DB even if Cloudinary fails
+    await product.deleteOne().catch(() => {}); 
+    res.status(500).json({ message: error.message || 'Server error' });
   }
-})
+});
 
 // @desc Create new review
 // @route POST /api/products/:id/reviews

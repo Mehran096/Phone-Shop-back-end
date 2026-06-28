@@ -20,6 +20,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
   const Order = require('./models/orderModel.js');
   const User = require('./models/User');
   const Product = require('./models/Product')
+  const Accessory = require('./models/Accessory');
   const adminRoutes = require('./routes/adminRoutes')
   const sendEmail = require( './utils/sendEmail.js')
 connectDB(); // Connect to MongoDB Atlas
