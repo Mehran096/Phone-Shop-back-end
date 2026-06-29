@@ -20,9 +20,9 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 // @route POST /api/orders
 // @access Private
 router.post('/', protect, asyncHandler(async (req, res) => {
-  const { 
-    orderItems, 
-    shippingAddress, 
+  const {
+    orderItems,
+    shippingAddress,
     paymentMethod,
   } = req.body
 
@@ -30,10 +30,10 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     res.status(400)
     throw new Error('No order items')
   }
- 
-    // 1. COD country check - BYPASS IN DEMO MODE
+
+  // 1. COD country check - BYPASS IN DEMO MODE
   const isDemo = process.env.DEMO_MODE === 'true'
-  
+
   if (paymentMethod === 'COD' && !isDemo) {
     const allowedCountries = ['Pakistan']
     const country = shippingAddress.country?.trim()
@@ -43,69 +43,29 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     }
   }
 
-  // 2. This route is only for COD
-  if (paymentMethod !== 'COD') {
+  const validOrderItems = orderItems.filter((x) => x.product != null)
+  if (validOrderItems.length === 0) {
     res.status(400)
-    throw new Error('Use /api/orders/create-checkout-session for online payments')
+    throw new Error('All products in cart were deleted')
   }
 
-  // 3. Get real product prices from DB - FIXED for duplicate product IDs
-    const validOrderItems = orderItems.filter(x => x.product !== null)
-
-if (validOrderItems.length === 0) {
-  res.status(400)
-  throw new Error('All products in cart were deleted')
-}
-
-const uniqueProductIds = [...new Set(
-  validOrderItems.map(x => 
-    typeof x.product === 'object' ? x.product._id : x.product
-  )
-)]
- 
-
-  const itemsFromDB = await Product.find({
-  _id: { $in: uniqueProductIds },
-})
- 
-
-  // Map DB prices to order items + include color
-const dbOrderItems = validOrderItems.map((itemFromClient) => {
-  const productId = typeof itemFromClient.product === 'object' 
-    ? itemFromClient.product._id 
-    : itemFromClient.product
-
-  const matchingItemFromDB = itemsFromDB.find(
-    (itemFromDB) => itemFromDB._id.toString() === productId.toString()
-  )
-
-  if (!matchingItemFromDB) {
-    throw new Error(`Product not found: ${productId}`)
-  }
-
-  // Find color variant for correct image
-  const colorVariant = matchingItemFromDB.colors.find(
-    (c) => c.name === itemFromClient.color
-  )
-
-  if (!colorVariant ||!colorVariant.images?.length) {
-    throw new Error(`Color ${itemFromClient.color} not found or has no images`)
-  }
-
-  return {
-    name: matchingItemFromDB.name,
+  // V19.0 COD ONLY BLOCK
+  const dbOrderItems = validOrderItems.map((itemFromClient) => ({
+    name: itemFromClient.name,
     qty: itemFromClient.qty,
-    image: colorVariant.images[0],
-    price: colorVariant.price, // Always use DB price
+    image: itemFromClient.image,
+    price: Number(itemFromClient.price),
     color: itemFromClient.color,
-    hexCode: itemFromClient.hexCode,
-    slug: matchingItemFromDB.slug,
-    product: matchingItemFromDB._id, // ← Use DB _id, not client product
-  }
-})
+    storage: itemFromClient.variant,
+    slug: itemFromClient.slug,
+    product: itemFromClient.product,
+  }))
+
+
+
 
   // 4. Calculate everything server-side
-  const { itemsPrice, taxPrice, shippingPrice, totalPrice, currency } = 
+  const { itemsPrice, taxPrice, shippingPrice, totalPrice, currency } =
     calcPrices(dbOrderItems, shippingAddress, paymentMethod)
 
   const order = new Order({
@@ -134,29 +94,41 @@ const dbOrderItems = validOrderItems.map((itemFromClient) => {
       email: user.email,
       subject: `Order #${createdOrder._id.toString().slice(-6)} Received`,
       html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
-          <h2>Thanks for your order, ${user.name}</h2>
-          <p>We've received your COD order and will process it shortly.</p>
-          
-          <h3>Order Summary</h3>
-          <p><strong>Order ID:</strong> ${createdOrder._id}</p>
-          <p><strong>Total:</strong> ${createdOrder.currency} ${createdOrder.totalPrice}</p>
-          <p><strong>Payment:</strong> ${createdOrder.paymentMethod}</p>
-           
-          <h3>Shipping To:</h3>
-          <p>
-            <strong>Phone:</strong> ${shippingAddress.phone}<br/>
-            ${shippingAddress.address}<br/>
-            ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
-            ${shippingAddress.country}
-          </p>
+  <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
+    <h2>Thanks for your order, ${user.name}</h2>
+    <p>We've received your COD order and will process it shortly.</p>
 
-          <a href="${process.env.FRONTEND_URL}/order/${createdOrder._id}"
-             style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:20px">
-            View Order
-          </a>
+    <h3>Order ID: ${createdOrder._id.toString().slice(-6)}</h3>
+    
+    <h3>Items:</h3> <!-- V21.8 KEY: SAME AS STRIPE -->
+    ${createdOrder.orderItems.map(item => `
+      <div style="display:flex;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px">
+        <img src="${process.env.CLIENT_URL}${item.image}" width="60" style="border-radius:6px;margin-right:12px"/>
+        <div style="flex:1">
+          <div style="font-weight:600">${item.name}</div>
+          <div style="font-size:13px;color:#666">Color: ${item.color} | Storage: ${item.storage}</div>
+          <div style="font-size:13px">${item.qty} x ${createdOrder.currency} ${item.price}</div>
         </div>
-      `
+      </div>
+    `).join('')}
+    
+    <p><strong>Total:</strong> ${createdOrder.currency} ${createdOrder.totalPrice}</p>
+    <p><strong>Payment:</strong> ${createdOrder.paymentMethod}</p>
+
+    <h3>Shipping To:</h3>
+    <p>
+      <strong>Phone:</strong> ${shippingAddress.phone}<br/>
+      ${shippingAddress.address}<br/>
+      ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
+      ${shippingAddress.country}
+    </p>
+
+    <a href="${process.env.FRONTEND_URL}/order/${createdOrder._id}" 
+       style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:20px">
+      View Order
+    </a>
+  </div>
+`
     })
     console.log('Order email sent to:', user.email)
   } catch (error) {
@@ -323,9 +295,9 @@ router.put('/:id/markasShipped', protect, admin, asyncHandler(async (req, res) =
           <p><strong>Tracking #:</strong> ${trackingNumber}</p>
           
           <h3>Order Items</h3>
-          ${order.orderItems.map(item => 
-            `<p>${item.name} x ${item.qty} - ${order.currency} ${(item.qty * item.price).toFixed(2)}</p>`
-          ).join('')}
+          ${order.orderItems.map(item =>
+        `<p>${item.name} x ${item.qty} - ${order.currency} ${(item.qty * item.price).toFixed(2)}</p>`
+      ).join('')}
           
           <p style="margin-top:20px;"><strong>Total: ${order.currency} ${order.totalPrice}</strong></p>
           
@@ -399,9 +371,9 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
           <p><strong>Tracking #:</strong> ${order.trackingNumber || 'N/A'}</p>
           
           <h3>Order Items</h3>
-          ${order.orderItems.map(item => 
-            `<p>${item.name} x ${item.qty} - ${order.currency} ${(item.qty * item.price).toFixed(2)}</p>`
-          ).join('')}
+          ${order.orderItems.map(item =>
+        `<p>${item.name} x ${item.qty} - ${order.currency} ${(item.qty * item.price).toFixed(2)}</p>`
+      ).join('')}
           
           <p style="margin-top:20px;"><strong>Total: ${order.currency} ${order.totalPrice}</strong></p>
           
@@ -426,43 +398,43 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
   }
 
   // 👇 WHATSAPP CODE START 👇
-// if (order.shippingAddress?.phone) {
-//   const phoneNumberId = process.env.WHATSAPP_PHONE_ID; // 1148062235058210
-//   const token = process.env.WHATSAPP_TOKEN; // Meta token
-  
-//   // Pakistan number: 03xx... ko 923xx... bana do
-//   let customerPhone = order.shippingAddress.phone.replace(/[^0-9]/g, '');
-//   if (customerPhone.startsWith('0')) {
-//     customerPhone = '92' + customerPhone.slice(1);
-//   } else if (!customerPhone.startsWith('92')) {
-//     customerPhone = '92' + customerPhone;
-//   }
-  
-//   const whatsappUrl = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
-  
-//   const messageData = {
-//   messaging_product: "whatsapp",
-//   to: customerPhone,
-//   type: "template",
-//   template: {
-//     name: "hello_world",
-//     language: { code: "en_US" }
-//   }
-// };
+  // if (order.shippingAddress?.phone) {
+  //   const phoneNumberId = process.env.WHATSAPP_PHONE_ID; // 1148062235058210
+  //   const token = process.env.WHATSAPP_TOKEN; // Meta token
 
-//   try {
-//     await axios.post(whatsappUrl, messageData, {
-//       headers: { 
-//         'Authorization': `Bearer ${token}`,
-//         'Content-Type': 'application/json'
-//       }
-//     });
-//     console.log('WhatsApp sent to:', customerPhone);
-//   } catch (err) {
-//     console.error('WhatsApp error:', err.response?.data || err.message);
-//   }
-// }
-// 👆 WHATSAPP CODE END 👆
+  //   // Pakistan number: 03xx... ko 923xx... bana do
+  //   let customerPhone = order.shippingAddress.phone.replace(/[^0-9]/g, '');
+  //   if (customerPhone.startsWith('0')) {
+  //     customerPhone = '92' + customerPhone.slice(1);
+  //   } else if (!customerPhone.startsWith('92')) {
+  //     customerPhone = '92' + customerPhone;
+  //   }
+
+  //   const whatsappUrl = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
+
+  //   const messageData = {
+  //   messaging_product: "whatsapp",
+  //   to: customerPhone,
+  //   type: "template",
+  //   template: {
+  //     name: "hello_world",
+  //     language: { code: "en_US" }
+  //   }
+  // };
+
+  //   try {
+  //     await axios.post(whatsappUrl, messageData, {
+  //       headers: { 
+  //         'Authorization': `Bearer ${token}`,
+  //         'Content-Type': 'application/json'
+  //       }
+  //     });
+  //     console.log('WhatsApp sent to:', customerPhone);
+  //   } catch (err) {
+  //     console.error('WhatsApp error:', err.response?.data || err.message);
+  //   }
+  // }
+  // 👆 WHATSAPP CODE END 👆
 
   res.json(updatedOrder)
 }))
@@ -552,66 +524,62 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     _id: { $in: orderItems.map(x => x.product) },
   })
 
-//   console.log('Client sent:', orderItems.map(x => x.product))
-// console.log('DB found:', itemsFromDB.map(x => x._id.toString()))
-
-
-  // if (itemsFromDB.length !== orderItems.length) {
-  //   res.status(404)
-  //   throw new Error('Product not found')
-  // }
-
   const dbProductIds = itemsFromDB.map(p => p._id.toString())
-const missingProducts = orderItems.filter(
-  item => !dbProductIds.includes(item.product)
-)
-
-if (missingProducts.length > 0) {
-  console.log('Missing product IDs:', missingProducts.map(i => i.product))
-  res.status(404)
-  throw new Error('Product not found')
-}
- 
-
-  const dbOrderItems = orderItems.map(itemFromClient => {
-    const matchingItemFromDB = itemsFromDB.find(
-      itemFromDB => itemFromDB._id.toString() === itemFromClient.product
-    )
-    if (!matchingItemFromDB) {
-      res.status(404)
-      throw new Error(`Product ${itemFromClient.product} not found`)
-    }
-
-    // Find color variant for correct image
-  const colorVariant = matchingItemFromDB.colors.find(
-    (c) => c.name === itemFromClient.color
+  const missingProducts = orderItems.filter(
+    item => !dbProductIds.includes(item.product)
   )
-  if (!colorVariant ||!colorVariant.images?.length) {
-    throw new Error(`Color ${itemFromClient.color} not found or has no images`)
+
+  if (missingProducts.length > 0) {
+    console.log('Missing product IDs:', missingProducts.map(i => i.product))
+    res.status(404)
+    throw new Error('Product not found')
   }
-  
-    return {
-  name: matchingItemFromDB.name,
-  qty: itemFromClient.qty,
-  image: colorVariant.images[0], // FALLBACK TO CLIENT
-  price: colorVariant.price, // Keep DB price for security
-  product: itemFromClient.product,
-  color: itemFromClient.color,
-  slug: itemFromClient.slug,
-  hexCode: itemFromClient.hexCode,
-}
-  })
+
+
+  const productMap = new Map(itemsFromDB.map(p => [p._id.toString(), p]));
+
+ const dbOrderItems = orderItems.map((itemFromClient) => {
+  const matchingItemFromDB = productMap.get(itemFromClient.product);
+
+  // V24.1 KEY: Read from variants[0].colors
+  const variantDoc = matchingItemFromDB.variants?.find(
+    v => v.storage === itemFromClient.variant
+  );
+  if (!variantDoc) {
+    res.status(400);
+    throw new Error(`Variant "${itemFromClient.variant}" not available`);
+  }
+
+  const colorVariant = variantDoc.colors?.find(
+    (c) => c.name === itemFromClient.color
+  );
+  if (!colorVariant) {
+    res.status(400);
+    throw new Error(`Color "${itemFromClient.color}" not available for ${matchingItemFromDB.name}`);
+  }
+
+  return {
+    name: matchingItemFromDB.name,
+    qty: itemFromClient.qty,
+    image: colorVariant.images?.[0]?.url || '', // V24.1: First image
+    price: colorVariant.price, // V24.1: from nested color
+    product: itemFromClient.product,
+    color: itemFromClient.color,
+    storage: itemFromClient.variant,
+    slug: matchingItemFromDB.slug,
+  };
+});
 
   // 2. Calculate prices - we still save shipping/tax to DB for records
   const { itemsPrice, shippingPrice, taxPrice, totalPrice } = calcPrices(
-    dbOrderItems, 
+    dbOrderItems,
     shippingAddress.country
   )
-  
+
   // 3. Set currency dynamically for Stripe
-  
-//const currency = shippingAddress.country === 'PK' ? 'pkr' : 'usd'
-const currency = 'usd' // Always USD
+
+  //const currency = shippingAddress.country === 'PK' ? 'pkr' : 'usd'
+  const currency = 'usd' // Always USD
 
   // 4. Create order in DB - keep shipping/tax for your records
   const order = await Order.create({
@@ -634,27 +602,40 @@ const currency = 'usd' // Always USD
       email: user.email,
       subject: `Order #${order._id.toString().slice(-6)} Received - Complete Payment`,
       html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
-          <h2>Thanks for your order, ${user.name}!</h2>
-          <p>We've received your order. Complete payment to confirm it.</p>
-          
-          <h3>Order ID: ${order._id.toString().slice(-6)}</h3>
-          <p><strong>Items Total: ${order.currency} ${itemsPrice}</strong></p>
-          <p><strong>Shipping:</strong> Free</p>
-          <p><strong>Tax:</strong> Not Included</p>
-          <p><strong>Amount to Pay: ${order.currency} ${itemsPrice}</strong></p>
-          
-          <p>You'll be redirected to Stripe to complete payment. Once paid, you'll get a confirmation email.</p>
-          
-          <h3>Shipping To:</h3>
-          <p>
-            <strong>Phone:</strong> ${shippingAddress.phone}<br/>
-            ${shippingAddress.address}<br/>
-            ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
-            ${shippingAddress.country}
-          </p>
+  <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
+    <h2>Thanks for your order, ${user.name}</h2>
+    <p>We've received your order. Complete payment to confirm it.</p>
+
+    <h3>Order ID: ${order._id.toString().slice(-6)}</h3>
+    
+    <h3>Items:</h3>  <!-- V21.6 KEY: ADD THIS TABLE -->
+    ${order.orderItems.map(item => `
+      <div style="display:flex;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px">
+        <img src="${process.env.CLIENT_URL}${item.image}" width="60" style="border-radius:6px;margin-right:12px"/>
+        <div style="flex:1">
+          <div style="font-weight:600">${item.name}</div>
+          <div style="font-size:13px;color:#666">Color: ${item.color} | Storage: ${item.storage}</div>
+          <div style="font-size:13px">${item.qty} x ${order.currency} ${item.price}</div>
         </div>
-      `,
+      </div>
+    `).join('')}
+    
+    <p><strong>Items Total:</strong> ${order.currency} ${itemsPrice}</p>
+    <p><strong>Shipping:</strong> Free</p>
+    <p><strong>Tax:</strong> Not Included</p>
+    <p><strong>Amount to Pay:</strong> ${order.currency} ${itemsPrice}</p>
+
+    <p>You'll be redirected to Stripe to complete payment. Once paid, you'll get a confirmation email.</p>
+
+    <h3>Shipping To:</h3>
+    <p>
+      <strong>Phone:</strong> ${shippingAddress.phone}<br/>
+      ${shippingAddress.address}<br/>
+      ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
+      ${shippingAddress.country}
+    </p>
+  </div>
+`
     })
     console.log('Order created email sent to:', user.email)
   } catch (error) {
@@ -666,7 +647,7 @@ const currency = 'usd' // Always USD
     price_data: {
       currency: currency, // 'usd' or 'pkr'
       product_data: {
-        name: item.name,
+        name: `${item.name} - ${item.color} ${item.storage}`,
         images: [item.image],
       },
       unit_amount: Math.round(item.price * 100), // Only product price
@@ -680,7 +661,7 @@ const currency = 'usd' // Always USD
     payment_method_types: ['card'],
     line_items, // Only products now
     mode: 'payment',
-     success_url: `${process.env.FRONTEND_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${process.env.FRONTEND_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${process.env.FRONTEND_URL}/cart`,
     customer_email: req.user.email,
     metadata: { orderId: order._id.toString() },
