@@ -34,20 +34,24 @@ const getWishlist = asyncHandler(async (req, res) => {
 // @route POST /api/users/wishlist
 // @access Private
 const addToWishlist = asyncHandler(async (req, res) => {
-  const { product, name, color, hexCode, image, price, countInStock } = req.body
-//console.log('Backend received:', req.body.hexCode)
-  if (!product || !name || !color || !image || !price ) {
-    res.status(400)
-    throw new Error('Missing required fields: product, name, color, image, price')
-  }
+  const { product, name, color, storage, image, price, countInStock } = req.body
+//console.log('Backend received:', req.body.storage)
+      if (!product || !name || !color || !image || !price || !storage) { // V24.6 KEY
+      res.status(400);
+      throw new Error('Missing required fields: product, name, color, storage, image, price')
+    }
 
   const user = await User.findById(req.user._id)
 
   if (user) {
     // FIX: Check if item.product exists before calling toString()
-    const alreadyExists = user.wishlist.find(
-      (item) => item.product && item.product.toString() === product && item.color === color
-    )
+   const alreadyExists = user.wishlist.find(
+  (item) => 
+    item.product && 
+    item.product.toString() === product && 
+    item.storage === storage && // V24.6 KEY
+    item.color === color
+)
 
     if (alreadyExists) {
       res.status(400)
@@ -60,7 +64,7 @@ const addToWishlist = asyncHandler(async (req, res) => {
       color, 
       image, 
       price,
-      hexCode,
+      storage,
       countInStock: countInStock || 0,
       qty: 1,
     }
