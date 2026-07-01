@@ -12,10 +12,10 @@ cloudinary.config({
 const createStorage = (folder) => new CloudinaryStorage({
   cloudinary,
   params: { 
-    folder, // 'products' OR 'reviews'
+    folder: folder, // 'products' OR 'reviews'
     allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
     resource_type: 'image',
-    public_id: (req, file) => `${Date.now()}-${file.originalname.split('.')[0]}`,
+    public_id: (req, file) => `${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
   },
 });
 

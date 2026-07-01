@@ -1,34 +1,50 @@
-const Product = require('../models/Product')
-const { cloudinary } = require('../utils/cloudinary.js'); // <-- V9.21 KEY: Add { } 
+const Product = require('../models/Product');
+const { cloudinary } = require('../utils/cloudinary.js'); // <-- must have { }
 const asyncHandler = require('express-async-handler');
 
- 
 // @access  Private/Admin
 const deleteImage = asyncHandler(async (req, res) => {
-  const public_id = req.params[0]; // <-- from /* route
-  const { productId, vIndex, cIndex } = req.query; // <-- V30.55: send these from frontend
+  let public_id = req.query.public_id;
+  const vIndex = Number(req.query.vIndex);
+  const cIndex = Number(req.query.cIndex);
+  const productId = req.query.productId;
 
   if (!public_id) {
     res.status(400);
     throw new Error('public_id is required');
   }
 
-  // 1. Delete from Cloudinary
-  const result = await cloudinary.uploader.destroy(public_id);
-  if (result.result!== 'ok' && result.result!== 'not found') {
-    res.status(400);
-    throw new Error(result.error?.message || 'Cloudinary delete failed');
-  }
+  public_id = public_id.replace(/^products\//, '').replace(/\.(jpg|jpeg|png|webp|avif)$/i, ''); // <-- V30.94 STRIP FOLDER FIRST
+console.log('CHECK CLOUDINARY FOR THIS:', public_id);
 
-  // 2. Delete from MongoDB if productId given
-  if (productId && vIndex && cIndex) {
-    await Product.updateOne(
-      { _id: productId },
-      { $pull: { [`variants.${vIndex}.colors.${cIndex}.images`] : { imagePublicId: public_id }}}
-    );
-  }
+  console.log('1. FROM FRONTEND:', public_id); // Should now be clean
 
-  res.status(200).json({ message: 'Image deleted', result: result.result });
+ const result = await cloudinary.uploader.destroy(public_id);
+console.log('2. CLOUDINARY RESULT:', result);
+
+if (result.result === 'ok') {
+  console.log('CLOUDINARY: DELETED ✅'); // <-- V30.83
+} else if (result.result === 'not found') {
+  console.log('CLOUDINARY: ALREADY GONE, CLEANING DB ONLY ⚠️'); // <-- V30.83
+} else {
+  res.status(400);
+  throw new Error(`Cloudinary failed: ${result.result}`); // Only fail on real errors
+}
+
+// 2. ALWAYS RUN DB DELETE IF PRODUCTID EXISTS
+// V31.57 DELETE FROM DB ON X CLICK - ALL COLORS, ALL SUFFIXES
+if (productId && vIndex != undefined) { // <-- V31.57 REMOVED cIndex
+  console.log('V31.57 DELETING FROM DB:', publicId);
+
+  const pullResult = await Product.updateOne(
+    { _id: productId }, // <-- V31.57
+    { $pull: { [`variants.${vIndex}.colors.$[].imagePublicIds`]: { $regex: `^${publicId}` }}} // <-- V31.57 $[] + REGEX KEY
+  );
+  
+  console.log('V31.57 MONGODB: PULLED RESULT:', pullResult.modifiedCount, 'doc(s)'); // <-- V31.57
+}
+
+res.json({ message: 'Image deleted from DB' }); // <-- V30.83
 });
 
-module.exports = { deleteImage }; // <-- CommonJS
+module.exports = { deleteImage };
