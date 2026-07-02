@@ -35,7 +35,7 @@ const getWishlist = asyncHandler(async (req, res) => {
 // @route POST /api/users/wishlist
 // @access Private
 const addToWishlist = asyncHandler(async (req, res) => {
-  console.log(req.body)
+  //console.log(req.body)
   const { product, name, color, storage, image, price, countInStock, slug } = req.body
   
 //console.log('Backend received:', req.body.storage)
