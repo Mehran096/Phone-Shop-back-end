@@ -94,41 +94,93 @@ router.post('/', protect, asyncHandler(async (req, res) => {
       email: user.email,
       subject: `Order #${createdOrder._id.toString().slice(-6)} Received`,
       html: `
-  <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
-    <h2>Thanks for your order, ${user.name}</h2>
-    <p>We've received your COD order and will process it shortly.</p>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="margin:0; padding:0; background-color:#f4f4f4; font-family:Arial, sans-serif">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f4">
+          <tr>
+            <td align="center" style="padding:20px 0">
+              <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px; background-color:#ffffff; border-radius:8px; overflow:hidden">
+                <tr>
+                  <td style="padding:24px">
+                    <h2 style="margin:0 0 12px; font-size:22px; color:#111">Thanks for your order, ${user.name}</h2>
+                    <p style="margin:0 0 20px; font-size:14px; color:#555">We've received your COD order and will process it shortly.</p>
 
-    <h3>Order ID: ${createdOrder._id.toString().slice(-6)}</h3>
-    
-    <h3>Items:</h3> <!-- V21.8 KEY: SAME AS STRIPE -->
-    ${createdOrder.orderItems.map(item => `
-      <div style="display:flex;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px">
-        <img src="${process.env.CLIENT_URL}${item.image}" width="60" style="border-radius:6px;margin-right:12px"/>
-        <div style="flex:1">
-          <div style="font-weight:600">${item.name}</div>
-          <div style="font-size:13px;color:#666">Color: ${item.color} | Storage: ${item.storage}</div>
-          <div style="font-size:13px">${item.qty} x ${createdOrder.currency} ${item.price}</div>
-        </div>
-      </div>
-    `).join('')}
-    
-    <p><strong>Total:</strong> ${createdOrder.currency} ${createdOrder.totalPrice}</p>
-    <p><strong>Payment:</strong> ${createdOrder.paymentMethod}</p>
+                    <h3 style="margin:0 0 12px; font-size:16px; color:#111">Order ID: ${createdOrder._id.toString().slice(-6)}</h3>
 
-    <h3>Shipping To:</h3>
-    <p>
-      <strong>Phone:</strong> ${shippingAddress.phone}<br/>
-      ${shippingAddress.address}<br/>
-      ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
-      ${shippingAddress.country}
-    </p>
+                    <h3 style="margin:20px 0 12px; font-size:16px; color:#111">Items:</h3>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">
+                      ${createdOrder.orderItems.map(item => `
+                        <tr style="border-bottom:1px solid #eee">
+                          <td style="padding:12px 0; vertical-align:top; width:70px">
+                            <img 
+                              src="${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}" 
+                              alt="${item.name}" 
+                              width="60" 
+                              height="60"
+                              style="display:block; border-radius:6px; border:1px solid #f3f3f3" 
+                            />
+                          </td>
+                          <td style="padding:12px 0 12px 12px; vertical-align:top">
+                            <div style="font-weight:600; font-size:14px; color:#111; line-height:1.4">${item.name}</div>
+                            <div style="font-size:13px; color:#666; margin-top:4px">
+                              Color: ${item.color} | Storage: ${item.storage}
+                            </div>
+                            <div style="font-size:13px; margin-top:4px; color:#111">
+                              ${item.qty} x ${createdOrder.currency} ${item.price}
+                            </div>
+                          </td>
+                        </tr>
+                      `).join('')}
+                    </table>
 
-    <a href="${process.env.FRONTEND_URL}/order/${createdOrder._id}" 
-       style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:20px">
-      View Order
-    </a>
-  </div>
-`
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px">
+                      <tr>
+                        <td style="padding:8px 0; font-size:14px"><strong>Total:</strong></td>
+                        <td align="right" style="padding:8px 0; font-size:14px; font-weight:600">${createdOrder.currency} ${createdOrder.totalPrice}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0; font-size:14px"><strong>Payment:</strong></td>
+                        <td align="right" style="padding:8px 0; font-size:14px">${createdOrder.paymentMethod}</td>
+                      </tr>
+                    </table>
+
+                    <h3 style="margin:20px 0 12px; font-size:16px; color:#111">Shipping To:</h3>
+                    <p style="margin:0; font-size:14px; line-height:1.6; color:#333">
+                      <strong>Phone:</strong> ${shippingAddress.phone}<br/>
+                      ${shippingAddress.address}<br/>
+                      ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
+                      ${shippingAddress.country}
+                    </p>
+
+                    <!-- Button -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px">
+                      <tr>
+                        <td align="center" bgcolor="#2563eb" style="border-radius:6px">
+                          <a 
+                            href="${process.env.FRONTEND_URL || 'https://phone-store.asia'}/order/${createdOrder._id}" 
+                            target="_blank"
+                            style="display:inline-block; padding:12px 24px; font-size:14px; color:#ffffff; text-decoration:none; font-weight:600"
+                          >
+                            View Order
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+      `,
     })
     console.log('Order email sent to:', user.email)
   } catch (error) {
@@ -611,7 +663,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     <h3>Items:</h3>  <!-- V21.6 KEY: ADD THIS TABLE -->
     ${order.orderItems.map(item => `
       <div style="display:flex;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px">
-        <img src="${process.env.CLIENT_URL}${item.image}" width="60" style="border-radius:6px;margin-right:12px"/>
+        <img src="${process.env.FRONTEND_URL}${item.image}" width="60" style="border-radius:6px;margin-right:12px"/>
         <div style="flex:1">
           <div style="font-weight:600">${item.name}</div>
           <div style="font-size:13px;color:#666">Color: ${item.color} | Storage: ${item.storage}</div>
@@ -781,7 +833,7 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
       await sendEmail({
         to: order.user.email,
         subject: `Payment Successful - Order ${order._id} | PhoneStore`,
-        text: `Hi ${order.user.name},\n\nYour payment was successful!\n\nOrder ID: ${order._id}\nTotal Paid: $${order.totalPrice}\n\nWe'll ship your items soon. You can track your order here: ${process.env.CLIENT_URL}/order/${order._id}\n\nThanks for shopping with PhoneStore!`,
+        text: `Hi ${order.user.name},\n\nYour payment was successful!\n\nOrder ID: ${order._id}\nTotal Paid: $${order.totalPrice}\n\nWe'll ship your items soon. You can track your order here: ${process.env.FRONTEND_URL}/order/${order._id}\n\nThanks for shopping with PhoneStore!`,
       })
 
       // Clear user's cart in MongoDB after successful payment
