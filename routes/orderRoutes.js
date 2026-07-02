@@ -87,6 +87,16 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     await User.findByIdAndUpdate(req.user._id, { cartItems: [] })
   }
 
+   // === V32.66 DEBUG START ===
+  // const testImageUrl = `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${createdOrder.orderItems[0].image}`
+  // console.log('====================================')
+  // console.log('EMAIL IMAGE URL TEST:', testImageUrl)
+  // console.log('FRONTEND_URL ENV:', process.env.FRONTEND_URL)
+  // console.log('item.image from DB:', createdOrder.orderItems[0].image)
+  // console.log('====================================')
+  // === V32.66 DEBUG END ===
+
+
   // 5. Send "Order Received" email
   try {
     const user = await User.findById(req.user._id)
@@ -118,7 +128,7 @@ router.post('/', protect, asyncHandler(async (req, res) => {
                         <tr style="border-bottom:1px solid #eee">
                           <td style="padding:12px 0; vertical-align:top; width:70px">
                             <img 
-                              src="${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}" 
+                              src="${item.image.startsWith('http')? item.image : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}`}" 
                               alt="${item.name}" 
                               width="60" 
                               height="60"
@@ -663,7 +673,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     <h3>Items:</h3>  <!-- V21.6 KEY: ADD THIS TABLE -->
     ${order.orderItems.map(item => `
       <div style="display:flex;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px">
-        <img src="${process.env.FRONTEND_URL}${item.image}" width="60" style="border-radius:6px;margin-right:12px"/>
+        <img src="${item.image.startsWith('http')? item.image : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}`}" width="60" style="border-radius:6px;margin-right:12px"/>
         <div style="flex:1">
           <div style="font-weight:600">${item.name}</div>
           <div style="font-size:13px;color:#666">Color: ${item.color} | Storage: ${item.storage}</div>
