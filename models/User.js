@@ -25,6 +25,7 @@ const userSchema = mongoose.Schema({
         required: true,
         ref: 'Product'
       },
+      slug: { type: String },
       name: { type: String, required: true },
       image: { type: String, required: true },
       price: { type: Number, required: true },

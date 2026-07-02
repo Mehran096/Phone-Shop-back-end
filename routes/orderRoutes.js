@@ -56,7 +56,7 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     image: itemFromClient.image,
     price: Number(itemFromClient.price),
     color: itemFromClient.color,
-    storage: itemFromClient.variant,
+    storage: itemFromClient.storage,
     slug: itemFromClient.slug,
     product: itemFromClient.product,
   }))
@@ -543,7 +543,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
 
   // V24.1 KEY: Read from variants[0].colors
   const variantDoc = matchingItemFromDB.variants?.find(
-    v => v.storage === itemFromClient.variant
+    v => v.storage === (itemFromClient.storage || itemFromClient.variant)
   );
   if (!variantDoc) {
     res.status(400);
@@ -565,7 +565,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     price: colorVariant.price, // V24.1: from nested color
     product: itemFromClient.product,
     color: itemFromClient.color,
-    storage: itemFromClient.variant,
+    storage: itemFromClient.storage,
     slug: matchingItemFromDB.slug,
   };
 });

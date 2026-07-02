@@ -2,12 +2,13 @@ const asyncHandler = require('express-async-handler')
 const User = require('../models/User')
 const Product = require('../models/Product')
 
-// @desc Get logged in user wishlist
-// @route GET /api/users/wishlist
-// @access Private
+ 
+// @desc    Get logged in user wishlist
+// @route   GET /api/users/wishlist  
+// @access  Private
 const getWishlist = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id)
-  
+
   if (!user) {
     res.status(404)
     throw new Error('User not found')
@@ -15,7 +16,7 @@ const getWishlist = asyncHandler(async (req, res) => {
 
   await user.populate({
     path: 'wishlist',
-    select: 'name price image countInStock colors',
+    select: 'name price image countInStock colors slug', 
   })
 
   // Filter out null products - same fix as cart
@@ -23,7 +24,7 @@ const getWishlist = asyncHandler(async (req, res) => {
 
   // Clean DB if we found nulls
   if (validWishlist.length !== user.wishlist.length) {
-    user.wishlist = validWishlist.map(p => p._id)
+    user.wishlist = validWishlist
     await user.save()
   }
 
@@ -34,11 +35,13 @@ const getWishlist = asyncHandler(async (req, res) => {
 // @route POST /api/users/wishlist
 // @access Private
 const addToWishlist = asyncHandler(async (req, res) => {
-  const { product, name, color, storage, image, price, countInStock } = req.body
+  console.log(req.body)
+  const { product, name, color, storage, image, price, countInStock, slug } = req.body
+  
 //console.log('Backend received:', req.body.storage)
-      if (!product || !name || !color || !image || !price || !storage) { // V24.6 KEY
+      if (!product || !name || !color || !image || !price || !storage || !slug) { // V24.6 KEY
       res.status(400);
-      throw new Error('Missing required fields: product, name, color, storage, image, price')
+      throw new Error('Missing required fields: product, name, color, storage, image, price, slug')
     }
 
   const user = await User.findById(req.user._id)
@@ -60,6 +63,7 @@ const addToWishlist = asyncHandler(async (req, res) => {
 
     const wishlistItem = { 
       product, 
+      slug,
       name, 
       color, 
       image, 
