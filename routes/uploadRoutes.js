@@ -1,5 +1,6 @@
 // server/routes/uploadRoutes.js
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const multer = require('multer');
 const asyncHandler = require('express-async-handler');
@@ -11,30 +12,47 @@ const Product = require('../models/Product.js')
 
 const router = express.Router();
 
-// V8.6: POST /api/upload/reviews  OR  /api/upload/products
-router.post('/:type', protect, async (req, res) => {
-  const { type } = req.params; // 'reviews' or 'products'
-  
-  if (!['reviews', 'products'].includes(type)) {
-    return res.status(400).json({ message: 'Invalid type. Use reviews or products' });
-  }
-
-  // V8.6 KEY: Only admins can use products folder
-  if (type === 'products' && !req.user.isAdmin) {
+// V8.6: POST /api/upload/products
+// V34.06: POST /api/upload/products - PRODUCTS ONLY
+router.post('/products', protect, asyncHandler(async (req, res) => {
+  // V34.06 KEY: Admin only for products
+  if (!req.user.isAdmin) {
     return res.status(403).json({ message: 'Admin only' });
   }
 
-  const upload = multer({ storage: createStorage(type) }).single('image');
+  // V34.06 KEY: Products = 5 files max. Reviews = 3 max in other route
+  const upload = multer({ storage: createStorage('products') }).array('images', 5); // V34.06 KEY: 5
+
+  upload(req, res, (err) => {
+    if (err) return res.status(400).json({ message: err.message });
+    const files = req.files && req.files.length > 0 ? req.files : (req.file ? [req.file] : []);
+    if (files.length === 0) return res.status(400).json({ message: 'No file uploaded' });
+    
+    const uploaded = files.map(file => ({ 
+      url: file.path, 
+      imagePublicId: file.filename.replace(/\.[^/.]+$/, "") // V34.06 KEY: use imagePublicId
+    }));
+    res.status(200).json(uploaded);
+  });
+}));
+
+// V33.75 KEY 1: REVIEWS ROUTE ONLY - 3 FILES MAX
+// V33.79 REPLACE WHOLE /reviews ROUTE
+router.post('/reviews', protect, (req, res) => {
+  const upload = multer({ storage: createStorage('reviews') }).array('images', 3);
   
   upload(req, res, (err) => {
     if (err) return res.status(400).json({ message: err.message });
-    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
     
-   const publicIdNoExt = req.file.filename.replace(/\.[^/.]+$/, ""); // <-- V31.46 KILL .jpg
-res.status(200).json({ 
-  url: req.file.path, 
-  public_id: publicIdNoExt // <-- V31.46 'products/178...' NO .jpg
-}); // <-- V8.5 format for frontend
+    const files = req.files || [];
+    
+    // V33.80 KEY: File is optional. Return empty array if no files
+    const uploaded = files.map((file) => ({ 
+      url: file.path,           // Cloudinary URL 
+      imagePublicId: file.filename // public_id
+    }));
+    
+    return res.status(200).json(uploaded); // V33.80 KEY: [] if no files = 200 OK
   });
 });
 
@@ -61,32 +79,7 @@ if (result.result === 'error') {
   throw new Error(`Cloudinary failed: ${result.message}`);
 }
   
-console.log('V31.88 CLOUDINARY: DELETED ✅'); // 'ok' or 'not found' both land here
-
-  // 2. MONGODB: V31.84 DISABLED = CLOUDINARY ONLY MODE
-  // if (productId && vIndex !== undefined) {
-  //   console.log('V31.74 === START DEBUG ===');
-  //   console.log('V31.74 1. FROM FRONTEND:', publicId);
-  //
-  //   const product = await Product.findById(productId).lean();
-  //   const dbArray = product.variants[vIndex].colors.map(c => c.imagePublicIds).flat();
-  //   console.log('V31.74 2. DB HAS NOW:', dbArray);
-  //
-  //   let pid = publicId;
-  //   if (pid.includes('cloudinary.com')) {
-  //     pid = pid.split('/upload/')[1] || pid;
-  //   }
-  //   pid = pid.replace(/^\d+\//, '').replace(/\.[^.]+$/, "");
-  //   console.log('V31.74 3. CLEANED PID:', pid);
-  //
-  //   const safeId = pid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  //   const pullResult = await Product.updateOne(
-  //     { _id: productId },
-  //     { $pull: { [`variants.${vIndex}.colors.$[].imagePublicIds`]: { $regex: `^${safeId}` } }
-  //   );
-  //   console.log('V31.74 5. RESULT:', pullResult);
-  //   console.log('V31.74 === END DEBUG ===');
-  // }
+ 
 
   res.status(200).json({ message: 'Image deleted from Cloudinary only' }); // V31.84
 

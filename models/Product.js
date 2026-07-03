@@ -9,8 +9,11 @@ const reviewSchema = mongoose.Schema({
   storage: { type: String }, 
   comment: { type: String, required: true },
   helpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  images: { type: [String], default: [] }, 
-  imagePublicIds: { type: [String], default: [] },
+  images: [{ // V33.14 KEY: Array of Objects like Product V9.59
+    url: { type: String, required: true },
+    imagePublicId: { type: String, required: true },
+  }], 
+  //imagePublicIds: { type: [String], default: [] },
   adminReply: { reply: String, name: String, user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, createdAt: Date },
 }, { timestamps: true });
 
