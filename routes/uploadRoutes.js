@@ -21,7 +21,7 @@ router.post('/products', protect, asyncHandler(async (req, res) => {
   }
 
   // V34.06 KEY: Products = 5 files max. Reviews = 3 max in other route
-  const upload = multer({ storage: createStorage('products') }).array('images', 5); // V34.06 KEY: 5
+  const upload = multer({ storage: createStorage('products') }).array('images', 10); // V34.06 KEY: 5
 
   upload(req, res, (err) => {
     if (err) return res.status(400).json({ message: err.message });
@@ -59,30 +59,18 @@ router.post('/reviews', protect, (req, res) => {
 // V9.9 KEY: ADD THIS DELETE ROUTE FOR `❌` BUTTON L75 Frontend
 // V9.14 KEY: Express v4 safe regex. Catches everything after /
 // V31.34 KEY: We only read from req.body. No params.
-router.delete('/', asyncHandler(async (req, res) => {
-  const { publicId, productId, vIndex, cIndex } = req.body; // V31.34 = 'products/1712345678-abc123'
+// V38.47 KEY: BATCH DELETE FOR UPDATE BUTTON
+router.post('/delete', asyncHandler(async (req, res) => {
+  const { publicIds } = req.body;
+  console.log('V38.49 DELETE REQUEST:', publicIds);
 
-  if (!publicId) {
-    res.status(400);
-    throw new Error('publicId is required');
-  }
-
-  //console.log('V31.85 DELETE ATTEMPT:', { publicId, productId, vIndex, cIndex });
-
-  // 1. CLOUDINARY: Use exact string from DB. NO folder add, NO ext add.
-  // 1. CLOUDINARY: Use exact string from DB. NO folder add, NO ext add.
-const result = await cloudinary.uploader.destroy(publicId); 
-console.log('V31.88 2. CLOUDINARY RESULT:', result);
-
-if (result.result === 'error') {
-  res.status(400);
-  throw new Error(`Cloudinary failed: ${result.message}`);
-}
+  const result = await cloudinary.api.delete_resources(publicIds, { // KEY CHANGE
+    resource_type: 'image',
+    invalidate: true
+  });
   
- 
-
-  res.status(200).json({ message: 'Image deleted from Cloudinary only' }); // V31.84
-
+  console.log('V38.49 CLOUDINARY RESULT:', result);
+  res.json({ deleted: result.deleted });
 }));
 
 

@@ -50,7 +50,7 @@ const createProduct = asyncHandler(async (req, res) => {
           countInStock: Number(c.countInStock) || 0, // V9.47 KEY: SKU stock
           sku: c.sku || '', // V9.47 KEY: SKU code
           images: c.images,
-          imagePublicIds: c.imagePublicIds || [],
+          //imagePublicIds: c.imagePublicIds || [],
         })),
     }))
     .filter(v => v.colors.length > 0); // Remove empty variants
@@ -254,38 +254,64 @@ const getProductById = asyncHandler(async (req, res) => {
 // @desc Update a product
 // @route PUT /api/products/:id
 // @access Private/Admin
+// @desc    Update a product
+// @route   PUT /api/products/:id
+// @access  Private/Admin
 const updateProduct = asyncHandler(async (req, res) => {
-  const { name, brand, category, description, variants, accessories, keywords, metaTitle, metaDescription } = req.body; // V9.52 KEY: Removed `specs`
+  const { 
+    name, 
+    brand, 
+    category, 
+    variants, 
+    accessories, 
+    keywords, 
+    metaTitle, 
+    metaDescription, 
+    imagesToDelete // V38.64 KEY: Get delete queue from frontend
+  } = req.body;
 
   const product = await Product.findById(req.params.id);
-  if (!product) { res.status(404); throw new Error('Product not found'); }
 
-  // V9.52 KEY 1: Nuke Cloudinary images that admin removed
-  const oldPublicIds = product.variants.flatMap(v => v.colors.flatMap(c => c.imagePublicIds || []));
-  const newPublicIds = variants?.flatMap(v => v.colors.flatMap(c => c.imagePublicIds || [])) || [];
-  const toDelete = oldPublicIds.filter(id => id &&!newPublicIds.includes(id));
-  if (toDelete.length > 0) {
-    await Promise.allSettled(toDelete.map(id => cloudinary.uploader.destroy(id)));
+  if (!product) {
+    res.status(404);
+    throw new Error('Product not found');
   }
 
-  if (!variants || variants.length === 0) { res.status(400); throw new Error('Please add at least 1 variant'); }
+  // V38.64 KEY 1: DELETE IMAGES FROM CLOUDINARY FIRST
+  if(imagesToDelete?.length > 0){
+    console.log('V38.64 DELETE REQUEST:', imagesToDelete);
+    const results = await Promise.allSettled(
+      imagesToDelete.map(id => cloudinary.uploader.destroy(id))
+    );
+    const deleted = results.filter(r => r.status === 'fulfilled').length;
+    console.log(`V38.64 Deleted ${deleted} images from Cloudinary`);
+  }
+
+  // Validation
+  if (!variants || variants.length === 0) { 
+    res.status(400); 
+    throw new Error('Please add at least 1 variant'); 
+  }
 
   // V9.52 KEY 2: Slug update
-  if (name && name!== product.name) {
-    product.slug = slugify(name, { lower: true, strict: true, remove: /[*+~.()'"!:@]/g });
+  if (name && name !== product.name) {
+    product.slug = slugify(name, { 
+      lower: true, 
+      strict: true, 
+      remove: /[*+~.()'"!:@]/g 
+    });
   }
 
   // V9.52 KEY 3: Direct assign. NO `specs` root. NO Multer.
   product.name = name;
   product.brand = brand;
   product.category = category;
-  product.description = description;
-  // product.specs = specs; // V9.52 KEY: DELETED ❌ specs is now variant.specs
+  // product.description = description;
   product.accessories = accessories; // array
   product.keywords = keywords; // array
   product.metaTitle = metaTitle?.slice(0, 60) || '';
   product.metaDescription = metaDescription?.slice(0, 160) || '';
-  product.variants = variants; // V9 structure: variants[0].specs = {ram: '8GB'}
+  product.variants = variants; // V38.64 KEY: Save variants with imagePublicId
 
   const updatedProduct = await product.save();
   res.json(updatedProduct);
@@ -293,9 +319,8 @@ const updateProduct = asyncHandler(async (req, res) => {
 
 
 
-// @desc Delete a product
-// @route DELETE /api/products/:id
-// @access Private/Admin
+// @route   DELETE /api/products/:id
+// @access  Private/Admin
 const deleteProduct = asyncHandler(async (req, res) => {
   const isDemoAdmin = req.user.email === 'demo@phonestore.com';
   if (isDemoAdmin) {
@@ -311,68 +336,42 @@ const deleteProduct = asyncHandler(async (req, res) => {
   try {
     const publicIdsToDelete = new Set();
 
-    // DEBUG: See what we have in DB
-    //console.log('DB product.variants:', JSON.stringify(product.variants, null, 2));
-
-    // Helper to extract public_id from Cloudinary URL. Handles v123/folder/file.jpg?v=1
-    const extractPublicId = (url) => {
-      if (!url) return null;
-      // Grabs everything between /upload/ and .jpg/.png/.webp, ignores ?v=...
-      const matches = url.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.\w+)?(?:\?.*)?$/); 
-      return matches? matches[1] : null;
-    };
-
-    // 1. Main product image - for OG tags
+    // 1. MAIN PRODUCT IMAGE
     if (product.image) {
       const mainImageId = extractPublicId(product.image);
       if (mainImageId) publicIdsToDelete.add(mainImageId);
     }
 
-    // 2. All VARIANT -> COLOR images
+    // 2. VARIANT -> COLOR IMAGES
     product.variants?.forEach((variant) => {
       variant.colors?.forEach((color) => {
-        if (color.imagePublicIds?.length > 0) {
-          // NEW products: use stored public_ids. 100% accurate.
-          color.imagePublicIds.forEach((id) => publicIdsToDelete.add(id));
-        } else {
-          // FALLBACK: OLD products that only have URLs
-          color.images?.forEach((url) => {
-            const id = extractPublicId(url);
-            if (id) publicIdsToDelete.add(id);
-          });
-        }
+        color.images?.forEach((img) => {
+          if (img?.imagePublicId) publicIdsToDelete.add(img.imagePublicId);
+        });
       });
     });
 
-    // 3. All review images 
+    // 3. REVIEW IMAGES - V38.09 FIX
     product.reviews?.forEach((review) => {
-      if (review.imagePublicIds?.length > 0) {
-        review.imagePublicIds.forEach((id) => publicIdsToDelete.add(id));
-      }
+      review.images?.forEach((img) => {
+        if (img?.imagePublicId) publicIdsToDelete.add(img.imagePublicId);
+      });
     });
 
-    // 4. Delete from Cloudinary - batch 100
+    // 4. DELETE FROM CLOUDINARY
     const idsArray = [...publicIdsToDelete];
-    //console.log('IDS TO DELETE FROM CLOUDINARY:', idsArray); // <-- THIS TELLS US EVERYTHING
     if (idsArray.length > 0) {
-      console.log(`Deleting ${idsArray.length} images from Cloudinary`);
+      console.log(`V38.09 Deleting ${idsArray.length} images from Cloudinary`);
       for (let i = 0; i < idsArray.length; i += 100) {
         const batch = idsArray.slice(i, i + 100);
-        try {
-          const result = await cloudinary.api.delete_resources(batch);
-          //console.log('Cloudinary delete result:', result); // <-- SEE WHAT CLOUDINARY DID
-        } catch (err) {
-          console.log('Cloudinary batch delete error:', err);
-        }
+        await cloudinary.api.delete_resources(batch);
       }
-    } else {
-      console.log('No images to delete. Set is empty.');
     }
 
-    // 5. Delete product from DB
+    // 5. DELETE PRODUCT FROM DB
     await product.deleteOne();
 
-    // 6. Clean up user carts and wishlists so no dead links
+    // 6. CLEAN UP USER CARTS AND WISHLISTS
     const productId = new mongoose.Types.ObjectId(req.params.id);
     await User.updateMany({ wishlist: productId }, { $pull: { wishlist: productId } });
     await User.updateMany({ 'cart.product': productId }, { $pull: { cart: { product: productId } }});
@@ -381,82 +380,83 @@ const deleteProduct = asyncHandler(async (req, res) => {
 
   } catch (error) {
     console.error('Delete product error:', error);
-    // Failsafe: Still delete DB even if Cloudinary fails
-    await product.deleteOne().catch(() => {}); 
+    await product.deleteOne().catch(() => {});
     res.status(500).json({ message: error.message || 'Server error' });
   }
 });
 
-// @desc Create new review
 // @route POST /api/products/:id/reviews
 // @access Private
 const createProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment, color, images } = req.body // images = array of Cloudinary objects OR URLs
-   
-  //const product = await Product.findById(req.params.id)
-  let product = await Product.findOne({ slug: req.params.id })
-  
-if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-  product = await Product.findById(req.params.id)
-}
+  const { rating, comment, color, storage, images } = req.body;
 
- 
+  let product = await Product.findOne({ slug: req.params.id });
+  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+    product = await Product.findById(req.params.id);
+  }
 
   if (product) {
     const alreadyReviewed = product.reviews.find(
-      (r) => r.user.toString() === req.user._id.toString() && r.color === color
-    )
-
-     
+      (r) => r.user.toString() === req.user._id.toString() && r.color === color && 
+        r.storage === storage
+    );
 
     if (alreadyReviewed) {
-      res.status(400)
-      throw new Error('Product already reviewed for this color')
+      res.status(400);
+      throw new Error('Product already reviewed for this color');
     }
 
+    // V38.12 KEY: CREATE REVIEW WITH IMAGES AS OBJECTS
     const review = {
-     name: req.user.name || req.user.email?.split('@')[0] || 'User',
-  rating: Number(rating),
-  comment,
-  user: req.user._id,
-  color: color || 'Default',
-  images: images || [],
-  imagePublicIds: [], // ADD THIS
-    }
+      name: req.user.name || req.user.email?.split('@')[0] || 'User',
+      rating: Number(rating),
+      comment,
+      user: req.user._id,
+      color: color || 'Default',
+      storage: storage || '',
+      images: [], // V38.12 START EMPTY
+    };
 
-    // Handle images - check if frontend sends URLs or full Cloudinary objects
+    // V38.12 KEY: CONVERT IMAGES TO {url, imagePublicId} OBJECTS
     if (images && images.length > 0) {
-      images.forEach(img => {
-        // Case 1: Frontend sends full Cloudinary response { secure_url, public_id }
-        if (typeof img === 'object' && img.secure_url) {
-          review.images.push(img.secure_url)
-          review.imagePublicIds.push(img.public_id)
+      images.forEach((img) => {
+        // Case 1: Frontend sends full Cloudinary object { secure_url, public_id }
+        if (typeof img === 'object' && img.secure_url && img.public_id) {
+          review.images.push({
+            url: img.secure_url,
+            imagePublicId: img.public_id,
+          });
+        } 
+        // Case 2: Frontend sends {url, imagePublicId} already
+        else if (typeof img === 'object' && img.url && img.imagePublicId) {
+          review.images.push({
+            url: img.url,
+            imagePublicId: img.imagePublicId,
+          });
         }
-        // Case 2: Frontend sends just URLs - extract public_id with regex
+        // Case 3: Frontend sends URL string only
         else if (typeof img === 'string') {
-          review.images.push(img)
-          const publicId = extractPublicIdFromUrl(img)
-          if (publicId) review.imagePublicIds.push(publicId)
+          review.images.push({
+            url: img,
+            imagePublicId: extractPublicId(img),
+          });
         }
-      })
+      });
     }
 
-    product.reviews.push(review)
-    product.numReviews = product.reviews.length
+    product.reviews.push(review);
+    product.numReviews = product.reviews.length;
+    
+    // V38.12 KEY: Calculate rating for all reviews
+    product.rating = product.reviews.reduce((acc, item) => item.rating + acc, 0) / product.reviews.length;
 
-    // FIXED: Calculate rating correctly per color
-    const colorReviews = product.reviews.filter(r => r.color === color)
-    product.rating = colorReviews.length > 0
-      ? colorReviews.reduce((acc, item) => acc + item.rating, 0) / colorReviews.length
-      : 0
-
-    await product.save()
-    res.status(201).json({ message: 'Review added' })
+    await product.save();
+    res.status(201).json({ message: 'Review added' });
   } else {
-    res.status(404)
-    throw new Error('Product not found')
+    res.status(404);
+    throw new Error('Product not found');
   }
-})
+});
 
 // @desc Get all reviews for a product
 // @route GET /api/products/:id/reviews
@@ -468,12 +468,13 @@ const getProductReviews = asyncHandler(async (req, res) => {
 
   const { color, sort } = req.query;
 
+  //console.log('V34.16 REQ PARAMS ID:', req.params.id, 'TYPE:', typeof req.params.id);
   //const product = await Product.findById(req.params.id);
   let product = await Product.findOne({ slug: req.params.id })
 if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
   product = await Product.findById(req.params.id)
 }
-
+//console.log('V34.16 PRODUCT FOUND:', product?._id, 'SLUG:', product?.slug);
   if (!product) {
     res.status(404);
     throw new Error('Product not found');

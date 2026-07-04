@@ -25,9 +25,9 @@ const colorSchema = new mongoose.Schema({
   sku: { type: String }, // V9.43 KEY: SKU per color
   images: [{ // V9.59 KEY: V9.47 Schema
     url: { type: String, required: true },
-    imagePublicId: { type: String, required: true },
+    imagePublicId: { type: String },
   }],
-  imagePublicIds: [{ type: String }],
+  //imagePublicIds: [{ type: String }],
 }, { _id: false });
 
 // V9.43 KEY: VARIANT = STORAGE LEVEL ONLY
@@ -44,7 +44,7 @@ const productSchema = mongoose.Schema({
   slug: { type: String, required: true, unique: true, lowercase: true },
   brand: { type: String, required: true },
   category: { type: String, required: true },
-  description: { type: String },
+  //description: { type: String },
   metaTitle: String,
   metaDescription: String,
   keywords: [{ type: String }],
