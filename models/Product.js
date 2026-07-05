@@ -20,8 +20,8 @@ const reviewSchema = mongoose.Schema({
 // V8.7 COLOR = GALLERY ONLY. NO hexCode, NO imageUrl
 const colorSchema = new mongoose.Schema({
   name: { type: String, required: true }, // Black, Purple
-  price: { type: Number, required: true }, // V9.43 KEY: $999 per color
-  countInStock: { type: Number, required: true, default: 0 }, // V9.43 KEY: 5 per color
+  price: { type: Number, required: true, min: 0 }, // V9.43 KEY: $999 per color
+  countInStock: { type: Number, required: true, min: 0, default: 0 }, // V9.43 KEY: 5 per color
   sku: { type: String }, // V9.43 KEY: SKU per color
   images: [{ // V9.59 KEY: V9.47 Schema
     url: { type: String, required: true },
@@ -41,7 +41,7 @@ const variantSchema = new mongoose.Schema({
 const productSchema = mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
   name: { type: String, required: true },
-  slug: { type: String, required: true, unique: true, lowercase: true },
+  slug: { type: String, required: true, unique: true, lowercase: true, index: true },
   brand: { type: String, required: true },
   category: { type: String, required: true },
   //description: { type: String },

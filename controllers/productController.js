@@ -302,6 +302,15 @@ const updateProduct = asyncHandler(async (req, res) => {
     });
   }
 
+  // V10.13.50 KEY: Strip newFiles before saving to DB
+const cleanVariants = variants.map(v => ({
+  ...v,
+  colors: v.colors.map(c => {
+    const { newFiles, ...rest } = c; // remove frontend-only field
+    return rest;
+  })
+}));
+
   // V9.52 KEY 3: Direct assign. NO `specs` root. NO Multer.
   product.name = name;
   product.brand = brand;
@@ -311,7 +320,7 @@ const updateProduct = asyncHandler(async (req, res) => {
   product.keywords = keywords; // array
   product.metaTitle = metaTitle?.slice(0, 60) || '';
   product.metaDescription = metaDescription?.slice(0, 160) || '';
-  product.variants = variants; // V38.64 KEY: Save variants with imagePublicId
+  product.variants = cleanVariants; // V38.64 KEY: Save variants with imagePublicId
 
   const updatedProduct = await product.save();
   res.json(updatedProduct);

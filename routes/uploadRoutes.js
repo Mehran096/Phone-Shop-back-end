@@ -20,8 +20,8 @@ router.post('/products', protect, asyncHandler(async (req, res) => {
     return res.status(403).json({ message: 'Admin only' });
   }
 
-  // V34.06 KEY: Products = 5 files max. Reviews = 3 max in other route
-  const upload = multer({ storage: createStorage('products') }).array('images', 10); // V34.06 KEY: 5
+  // V34.06 KEY: Products = 100 files max. Reviews = 3 max in other route
+  const upload = multer({ storage: createStorage('products') }).array('images', 100); // V34.06 KEY: 5
 
   upload(req, res, (err) => {
     if (err) return res.status(400).json({ message: err.message });
