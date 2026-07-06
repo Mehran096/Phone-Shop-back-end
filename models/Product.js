@@ -49,7 +49,7 @@ const productSchema = mongoose.Schema({
   metaDescription: String,
   keywords: [{ type: String }],
   accessories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Accessory' }], 
-  specs: { ram: String, display: String, battery: String, camera: String },
+  //specs: { ram: String, display: String, battery: String, camera: String },
 
   // V8.7 NEW STRUCTURE ONLY. DELETED: price, image, images, colors
   variants: { type: [variantSchema], default: [] }, 
