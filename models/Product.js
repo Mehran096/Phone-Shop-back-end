@@ -9,11 +9,14 @@ const reviewSchema = mongoose.Schema({
   storage: { type: String }, 
   comment: { type: String, required: true },
   helpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  verifiedPurchase: {
+    type: Boolean,
+    default: false,
+  },
   images: [{ // V33.14 KEY: Array of Objects like Product V9.59
     url: { type: String, required: true },
     imagePublicId: { type: String, required: true },
   }], 
-  //imagePublicIds: { type: [String], default: [] },
   adminReply: { reply: String, name: String, user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, createdAt: Date },
 }, { timestamps: true });
 
@@ -26,8 +29,7 @@ const colorSchema = new mongoose.Schema({
   images: [{ // V9.59 KEY: V9.47 Schema
     url: { type: String, required: true },
     imagePublicId: { type: String },
-  }],
-  //imagePublicIds: [{ type: String }],
+  }], 
 }, { _id: false });
 
 // V9.43 KEY: VARIANT = STORAGE LEVEL ONLY
@@ -43,8 +45,7 @@ const productSchema = mongoose.Schema({
   name: { type: String, required: true },
   slug: { type: String, required: true, unique: true, lowercase: true, index: true },
   brand: { type: String, required: true },
-  category: { type: String, required: true },
-  //description: { type: String },
+  category: { type: String, required: true }, 
   metaTitle: String,
   metaDescription: String,
   keywords: [{ type: String }],

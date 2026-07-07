@@ -5,7 +5,7 @@ const orderSchema = mongoose.Schema(
     user: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
-      ref: 'User', // We'll add users later. For now this can be null
+      ref: 'User',
     },
     orderItems: [
       {

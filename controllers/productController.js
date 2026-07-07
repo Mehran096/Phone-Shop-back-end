@@ -3,6 +3,7 @@ const asyncHandler = require('express-async-handler')
 const Product = require('../models/Product')
 const slugify = require('slugify')
 const User = require('../models/User')
+const Order = require('../models/orderModel');
 const { cloudinary } = require('../utils/cloudinary')
 
 const extractPublicIdFromUrl = (url) => {
@@ -19,7 +20,7 @@ const extractPublicIdFromUrl = (url) => {
 // @route POST /api/products
 // @access Private/Admin
 const createProduct = asyncHandler(async (req, res) => {
-  console.log('V9.47 BODY RECEIVED:', JSON.stringify(req.body, null, 2)); // Debug
+  //console.log('V9.47 BODY RECEIVED:', JSON.stringify(req.body, null, 2)); // Debug
 
   const {
     name, brand, category, metaTitle, metaDescription, // V9.47 KEY: No description/specs
@@ -415,6 +416,17 @@ const createProductReview = asyncHandler(async (req, res) => {
       throw new Error('Product already reviewed for this color');
     }
 
+    // Check if user purchased this product
+const hasPurchased = await Order.findOne({
+  user: req.user._id,
+  isPaid: true,
+  orderItems: {
+    $elemMatch: {
+      product: product._id,
+    },
+  },
+});
+
     // V38.12 KEY: CREATE REVIEW WITH IMAGES AS OBJECTS
     const review = {
       name: req.user.name || req.user.email?.split('@')[0] || 'User',
@@ -423,6 +435,7 @@ const createProductReview = asyncHandler(async (req, res) => {
       user: req.user._id,
       color: color || 'Default',
       storage: storage || '',
+      verifiedPurchase: !!hasPurchased,
       images: [], // V38.12 START EMPTY
     };
 
@@ -475,55 +488,82 @@ const getProductReviews = asyncHandler(async (req, res) => {
   const limit = Number(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const { color, sort } = req.query;
+  const { color, storage, sort } = req.query;
 
-  //console.log('V34.16 REQ PARAMS ID:', req.params.id, 'TYPE:', typeof req.params.id);
-  //const product = await Product.findById(req.params.id);
-  let product = await Product.findOne({ slug: req.params.id })
-if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-  product = await Product.findById(req.params.id)
-}
-//console.log('V34.16 PRODUCT FOUND:', product?._id, 'SLUG:', product?.slug);
+  let product = await Product.findOne({ slug: req.params.id });
+
+  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+    product = await Product.findById(req.params.id);
+  }
+
   if (!product) {
     res.status(404);
-    throw new Error('Product not found');
+    throw new Error("Product not found");
   }
 
-  let reviews = product.reviews;
+  let reviews = [...product.reviews];
 
-  // Filter by color if passed: ?color=Black
-  if (color) {
-    reviews = reviews.filter(r => r.color === color);
+  // Filter by color
+  if (color && color !== "all") {
+    reviews = reviews.filter(
+      (review) => review.color === color
+    );
   }
 
-  // Add helpfulCount on the fly since you store array of user IDs
-  reviews = reviews.map(review => ({
-    ...review.toObject(), // convert Mongoose doc to plain object
-    helpfulCount: review.helpful.length, // count array length
-    createdAt: review.createdAt // timestamps: true gives you this
+  // Filter by Storage
+  if (storage && storage !== 'all') {
+  reviews = reviews.filter(
+    (review) => review.storage === storage
+  );
+}
+
+  // Convert to plain object and calculate helpful count
+  reviews = reviews.map((review) => ({
+    ...review.toObject(),
+    helpfulCount: review.helpful ? review.helpful.length : 0,
   }));
 
-  // Sort: newest, oldest, highest_rating, most_helpful
-  if (sort === 'oldest') {
-    reviews.sort((a, b) => a.createdAt - b.createdAt);
-  } else if (sort === 'highest_rating') {
-    reviews.sort((a, b) => b.rating - a.rating);
-  } else if (sort === 'most_helpful') {
-    reviews.sort((a, b) => b.helpfulCount - a.helpfulCount);
-  } else {
-    // Default: newest first
-    reviews.sort((a, b) => b.createdAt - a.createdAt);
+  // Sorting
+  switch (sort) {
+    case "highest":
+      reviews.sort((a, b) => b.rating - a.rating);
+      break;
+
+    case "lowest":
+      reviews.sort((a, b) => a.rating - b.rating);
+      break;
+
+    case "oldest":
+      reviews.sort(
+        (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+      );
+      break;
+    case "helpful":
+    case "mostHelpful":
+      reviews.sort(
+        (a, b) => b.helpfulCount - a.helpfulCount
+      );
+      break;
+
+    default:
+      // newest
+      reviews.sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      );
   }
 
   const totalReviews = reviews.length;
+  const totalPages = Math.ceil(totalReviews / limit);
+
   const paginatedReviews = reviews.slice(skip, skip + limit);
 
   res.json({
     reviews: paginatedReviews,
     page,
-    totalPages: Math.ceil(totalReviews / limit),
+    totalPages,
     totalReviews,
-    color: color || 'all'
+    hasMore: page < totalPages,
+    nextPage: page < totalPages ? page + 1 : null,
   });
 });
 
