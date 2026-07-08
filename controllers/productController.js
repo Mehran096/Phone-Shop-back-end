@@ -398,7 +398,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
 // @route POST /api/products/:id/reviews
 // @access Private
 const createProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment, color, storage, images } = req.body;
+  const { rating, comment, color, storage, title, images } = req.body;
 
   let product = await Product.findOne({ slug: req.params.id });
   if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -432,6 +432,7 @@ const hasPurchased = await Order.findOne({
       name: req.user.name || req.user.email?.split('@')[0] || 'User',
       rating: Number(rating),
       comment,
+      title,
       user: req.user._id,
       color: color || 'Default',
       storage: storage || '',
@@ -488,7 +489,7 @@ const getProductReviews = asyncHandler(async (req, res) => {
   const limit = Number(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const { color, storage, sort } = req.query;
+  const { color, storage, sort, keyword, rating } = req.query;
 
   let product = await Product.findOne({ slug: req.params.id });
 
@@ -515,6 +516,27 @@ const getProductReviews = asyncHandler(async (req, res) => {
   reviews = reviews.filter(
     (review) => review.storage === storage
   );
+}
+
+//rating filter
+if (rating) {
+  reviews = reviews.filter(
+    (review) => review.rating === Number(rating)
+  );
+}
+
+// Search reviews
+if (keyword && keyword.trim()) {
+  const search = keyword.trim().toLowerCase();
+
+  reviews = reviews.filter((review) => {
+    return (
+      review.comment?.toLowerCase().includes(search) ||
+      review.title?.toLowerCase().includes(search) ||
+      review.name?.toLowerCase().includes(search)
+      
+    );
+  });
 }
 
   // Convert to plain object and calculate helpful count
@@ -571,7 +593,7 @@ const getProductReviews = asyncHandler(async (req, res) => {
 // @route   PUT /api/products/:id/reviews/:reviewId
 // @access  Private
 const updateProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment, images } = req.body; // V33.31: images = [{url, imagePublicId}]
+  const { rating, comment, images, title } = req.body; // V33.31: images = [{url, imagePublicId}]
 
   let product = await Product.findOne({ slug: req.params.id });
   if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -617,6 +639,7 @@ const updateProductReview = asyncHandler(async (req, res) => {
   // 2. Update review fields V33.31
   review.rating = Number(rating) || review.rating;
   review.comment = comment || review.comment;
+  review.title = title || review.title;
   review.images = newImages; // V33.31 KEY: Direct replace. No imagePublicIds field
 
   // 3. Recalculate product rating V33.31

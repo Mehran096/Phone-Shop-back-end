@@ -4,6 +4,12 @@ const slugify = require('slugify');
 const reviewSchema = mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
+  title: {
+    type: String,
+    //required: true,
+    trim: true,
+    maxlength: 120,
+  },
   rating: { type: Number, required: true },
   color: { type: String, required: true },
   storage: { type: String }, 
