@@ -12,9 +12,17 @@ const reviewSchema = mongoose.Schema({
   },
   rating: { type: Number, required: true },
   color: { type: String, required: true },
-  storage: { type: String }, 
+  storage: { type: String },
   comment: { type: String, required: true },
-  helpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  helpful: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  }],
+
+  notHelpful: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  }],
   verifiedPurchase: {
     type: Boolean,
     default: false,
@@ -22,7 +30,7 @@ const reviewSchema = mongoose.Schema({
   images: [{ // V33.14 KEY: Array of Objects like Product V9.59
     url: { type: String, required: true },
     imagePublicId: { type: String, required: true },
-  }], 
+  }],
   adminReply: { reply: String, name: String, user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, createdAt: Date },
 }, { timestamps: true });
 
@@ -35,7 +43,7 @@ const colorSchema = new mongoose.Schema({
   images: [{ // V9.59 KEY: V9.47 Schema
     url: { type: String, required: true },
     imagePublicId: { type: String },
-  }], 
+  }],
 }, { _id: false });
 
 // V9.43 KEY: VARIANT = STORAGE LEVEL ONLY
@@ -51,15 +59,15 @@ const productSchema = mongoose.Schema({
   name: { type: String, required: true },
   slug: { type: String, required: true, unique: true, lowercase: true, index: true },
   brand: { type: String, required: true },
-  category: { type: String, required: true }, 
+  category: { type: String, required: true },
   metaTitle: String,
   metaDescription: String,
   keywords: [{ type: String }],
-  accessories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Accessory' }], 
+  accessories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Accessory' }],
   //specs: { ram: String, display: String, battery: String, camera: String },
 
   // V8.7 NEW STRUCTURE ONLY. DELETED: price, image, images, colors
-  variants: { type: [variantSchema], default: [] }, 
+  variants: { type: [variantSchema], default: [] },
 
   rating: { type: Number, required: true, default: 0 },
   numReviews: { type: Number, required: true, default: 0 },
@@ -67,11 +75,11 @@ const productSchema = mongoose.Schema({
 }, { timestamps: true });
 
 // V8.6 UNIQUE SLUG
-productSchema.pre('save', function() {
+productSchema.pre('save', function () {
   if (!this.slug && this.name) {
     this.slug = `${slugify(this.name, { lower: true, strict: true })}-${Date.now()}`;
   }
-  
+
 });
 
 const Product = mongoose.model('Product', productSchema);

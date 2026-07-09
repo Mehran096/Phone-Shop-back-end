@@ -539,11 +539,12 @@ if (keyword && keyword.trim()) {
   });
 }
 
-  // Convert to plain object and calculate helpful count
-  reviews = reviews.map((review) => ({
-    ...review.toObject(),
-    helpfulCount: review.helpful ? review.helpful.length : 0,
-  }));
+ // Convert to plain object and calculate vote counts
+reviews = reviews.map((review) => ({
+  ...review.toObject(),
+  helpfulCount: review.helpful ? review.helpful.length : 0,
+  notHelpfulCount: review.notHelpful ? review.notHelpful.length : 0,
+}));
 
   // Sorting
   switch (sort) {
@@ -560,12 +561,17 @@ if (keyword && keyword.trim()) {
         (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
       );
       break;
-    case "helpful":
-    case "mostHelpful":
+    case "helpful": 
       reviews.sort(
         (a, b) => b.helpfulCount - a.helpfulCount
       );
       break;
+       case "notHelpful": 
+    reviews.sort(
+      (a, b) => b.notHelpfulCount - a.notHelpfulCount
+    );
+    break;
+      
 
     default:
       // newest
@@ -729,6 +735,11 @@ if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
   if (product) {
     const review = product.reviews.id(req.params.reviewId);
 
+    // Remove from Not Helpful if already voted
+review.notHelpful = review.notHelpful.filter(
+  (u) => u.toString() !== req.user._id.toString()
+);
+
     if (!review) {
       res.status(404);
       throw new Error('Review not found');
@@ -758,6 +769,55 @@ if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
   } else {
     res.status(404);
     throw new Error('Product not found');
+  }
+});
+
+// @route PUT /api/products/:id/reviews/:reviewId/not-helpful
+// @access Private
+const markReviewNotHelpful = asyncHandler(async (req, res) => {
+  let product = await Product.findOne({ slug: req.params.id });
+
+  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+    product = await Product.findById(req.params.id);
+  }
+
+  if (product) {
+    const review = product.reviews.id(req.params.reviewId);
+
+    if (!review) {
+      res.status(404);
+      throw new Error("Review not found");
+    }
+
+    // Remove from Helpful if already voted
+    review.helpful = review.helpful.filter(
+      (u) => u.toString() !== req.user._id.toString()
+    );
+
+    const alreadyVoted = review.notHelpful.find(
+      (u) => u.toString() === req.user._id.toString()
+    );
+
+    if (alreadyVoted) {
+      // Unvote
+      review.notHelpful = review.notHelpful.filter(
+        (u) => u.toString() !== req.user._id.toString()
+      );
+    } else {
+      // Add vote
+      review.notHelpful.push(req.user._id);
+    }
+
+    await product.save();
+
+    res.status(200).json({
+      helpfulCount: review.helpful.length,
+      notHelpfulCount: review.notHelpful.length,
+      userVoted: !alreadyVoted,
+    });
+  } else {
+    res.status(404);
+    throw new Error("Product not found");
   }
 });
 
@@ -890,6 +950,7 @@ module.exports = {
   updateProductReview,
   deleteProductReview,
   markReviewHelpful,
+  markReviewNotHelpful,
   addAdminReply,
   editAdminReply,
   deleteAdminReply

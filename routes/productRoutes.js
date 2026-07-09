@@ -13,6 +13,7 @@ const {
   updateProductReview,
   deleteProductReview,
   markReviewHelpful,
+  markReviewNotHelpful,
   addAdminReply,
   editAdminReply,
   deleteAdminReply
@@ -49,6 +50,8 @@ router.route('/:id/reviews')
 
 // Specific routes FIRST - order matters in Express
 router.route('/:id/reviews/:reviewId/helpful').put(protect, markReviewHelpful);
+router.route('/:id/reviews/:reviewId/not-helpful').put(protect, markReviewNotHelpful);
+///api/products/:id/reviews/:reviewId/not-helpful
 
 router.route('/:id/reviews/:reviewId/reply')
   .post(protect, admin, addAdminReply)
