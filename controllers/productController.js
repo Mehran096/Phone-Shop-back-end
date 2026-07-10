@@ -47,6 +47,7 @@ const createProduct = asyncHandler(async (req, res) => {
         .filter(c => c.name && c.images?.length > 0) // Must have name + 1 image
         .map(c => ({
           name: c.name,
+          hexCode: c.hexCode || "",
           price: Number(c.price), // V9.47 KEY: SKU price
           countInStock: Number(c.countInStock) || 0, // V9.47 KEY: SKU stock
           sku: c.sku || '', // V9.47 KEY: SKU code

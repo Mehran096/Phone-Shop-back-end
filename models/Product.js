@@ -37,6 +37,7 @@ const reviewSchema = mongoose.Schema({
 // V8.7 COLOR = GALLERY ONLY. NO hexCode, NO imageUrl
 const colorSchema = new mongoose.Schema({
   name: { type: String, required: true }, // Black, Purple
+  hexCode: { type: String, trim: true }, // Black, Purple
   price: { type: Number, required: true, min: 0 }, // V9.43 KEY: $999 per color
   countInStock: { type: Number, required: true, min: 0, default: 0 }, // V9.43 KEY: 5 per color
   sku: { type: String }, // V9.43 KEY: SKU per color
