@@ -29,6 +29,8 @@ const userSchema = mongoose.Schema({
       name: { type: String, required: true },
       image: { type: String, required: true },
       price: { type: Number, required: true },
+      originalPrice: { type: Number },
+      discountAmount: { type: Number, default: 0 },
       color: { type: String, required: true },
       storage: { type: String, required: true },
       countInStock: { type: Number, required: true, default: 0 }, // Add this

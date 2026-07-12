@@ -39,6 +39,28 @@ const colorSchema = new mongoose.Schema({
   name: { type: String, required: true }, // Black, Purple
   hexCode: { type: String, trim: true }, // Black, Purple
   price: { type: Number, required: true, min: 0 }, // V9.43 KEY: $999 per color
+  discount: {
+    type: {
+      type: String,
+      enum: ["percentage", "fixed"],
+      default: null,
+    },
+    value: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    startDate: {
+      type: Date,
+    },
+    endDate: {
+      type: Date,
+    },
+    isActive: {
+      type: Boolean,
+      default: false,
+    },
+  },
   countInStock: { type: Number, required: true, min: 0, default: 0 }, // V9.43 KEY: 5 per color
   sku: { type: String }, // V9.43 KEY: SKU per color
   images: [{ // V9.59 KEY: V9.47 Schema

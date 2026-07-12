@@ -36,7 +36,7 @@ const getWishlist = asyncHandler(async (req, res) => {
 // @access Private
 const addToWishlist = asyncHandler(async (req, res) => {
   //console.log(req.body)
-  const { product, name, color, storage, image, price, countInStock, slug } = req.body
+  const { product, name, color, storage, image, price, countInStock, slug, originalPrice, discountAmount } = req.body
   
 //console.log('Backend received:', req.body.storage)
       if (!product || !name || !color || !image || !price || !storage || !slug) { // V24.6 KEY
@@ -68,6 +68,8 @@ const addToWishlist = asyncHandler(async (req, res) => {
       color, 
       image, 
       price,
+      originalPrice,
+      discountAmount,
       storage,
       countInStock: countInStock || 0,
       qty: 1,

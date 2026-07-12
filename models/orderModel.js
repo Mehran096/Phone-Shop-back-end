@@ -13,6 +13,8 @@ const orderSchema = mongoose.Schema(
         qty: { type: Number, required: true },
         image: { type: String, required: true },
         price: { type: Number, required: true },
+        originalPrice: { type: Number },
+        discountAmount: { type: Number, default: 0 },
         slug: { type: String },
         color: { type: String, required: true },
         storage: { type: String },

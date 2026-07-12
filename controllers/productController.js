@@ -2,6 +2,7 @@ const mongoose = require('mongoose')
 const asyncHandler = require('express-async-handler')
 const Product = require('../models/Product')
 const slugify = require('slugify')
+const calculateDiscount = require('../utils/discountHelper.js');
 const User = require('../models/User')
 const Order = require('../models/orderModel');
 const { cloudinary } = require('../utils/cloudinary')
@@ -49,6 +50,21 @@ const createProduct = asyncHandler(async (req, res) => {
           name: c.name,
           hexCode: c.hexCode || "",
           price: Number(c.price), // V9.47 KEY: SKU price
+          discount: (() => {
+            const discount = {
+              type: c.discount?.type || "percentage",
+              value: Number(c.discount?.value) || 0,
+              startDate: c.discount?.startDate || null,
+              endDate: c.discount?.endDate || null,
+            };
+
+            discount.isActive =
+              discount.value > 0 &&
+              (!discount.startDate || new Date() >= new Date(discount.startDate)) &&
+              (!discount.endDate || new Date() <= new Date(discount.endDate));
+
+            return discount;
+          })(),
           countInStock: Number(c.countInStock) || 0, // V9.47 KEY: SKU stock
           sku: c.sku || '', // V9.47 KEY: SKU code
           images: c.images,
@@ -108,45 +124,45 @@ const getProducts = asyncHandler(async (req, res) => {
   // 1. Search Filter: V9.51 KEY = variants.storage + variants.colors.name
   const searchFilter = keyword
     ? {
-        $and: keyword
-          .trim()
-          .split(' ')
-          .filter(Boolean)
-          .map((word) => ({
-            $or: [
-              { name: { $regex: word, $options: 'i' } },
-              { brand: { $regex: word, $options: 'i' } },
-              { category: { $regex: word, $options: 'i' } },
-              { keywords: { $regex: word, $options: 'i' } },
-              { 'variants.storage': { $regex: word, $options: 'i' } }, // V9.51 KEY
-              { 'variants.colors.name': { $regex: word, $options: 'i' } }, // V9.51 KEY
-            ],
-          })),
-      }
+      $and: keyword
+        .trim()
+        .split(' ')
+        .filter(Boolean)
+        .map((word) => ({
+          $or: [
+            { name: { $regex: word, $options: 'i' } },
+            { brand: { $regex: word, $options: 'i' } },
+            { category: { $regex: word, $options: 'i' } },
+            { keywords: { $regex: word, $options: 'i' } },
+            { 'variants.storage': { $regex: word, $options: 'i' } }, // V9.51 KEY
+            { 'variants.colors.name': { $regex: word, $options: 'i' } }, // V9.51 KEY
+          ],
+        })),
+    }
     : {};
 
   // 2. Other Filters
-  const brandFilter = brand ? { brand: { $regex: brand, $options: 'i' }} : {};
-  const categoryFilter = category ? { category: { $regex: category, $options: 'i' }} : {};
+  const brandFilter = brand ? { brand: { $regex: brand, $options: 'i' } } : {};
+  const categoryFilter = category ? { category: { $regex: category, $options: 'i' } } : {};
 
   // 3. Storage Filter: V9.51 KEY = Exact match 256GB
   const storageFilter = storage
-    ? { 'variants.storage': { $regex: `^${storage}$`, $options: 'i' }}
+    ? { 'variants.storage': { $regex: `^${storage}$`, $options: 'i' } }
     : {};
 
   // 4. Price Filter: V9.51 KEY = $elemMatch on variants.colors.price
   const priceFilter =
     minPrice || maxPrice
       ? {
-          'variants.colors': { 
-            $elemMatch: {
-              price: {
-                ...(minPrice && { $gte: Number(minPrice) }),
-                ...(maxPrice && { $lte: Number(maxPrice) }),
-              },
+        'variants.colors': {
+          $elemMatch: {
+            price: {
+              ...(minPrice && { $gte: Number(minPrice) }),
+              ...(maxPrice && { $lte: Number(maxPrice) }),
             },
           },
-        }
+        },
+      }
       : {};
 
   const filter = { ...searchFilter, ...brandFilter, ...categoryFilter, ...storageFilter, ...priceFilter };
@@ -163,9 +179,10 @@ const getProducts = asyncHandler(async (req, res) => {
 
   // 4. Frontend helper: V9.51 KEY = Min price from all Colors for shop card
   const productsWithMin = products.map(p => {
+    
     const allColors = p.variants?.flatMap(v => v.colors) || []; // V9.51 KEY: Flatten all SKUs
     const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name
-    
+
     const minColor = allColors.length > 0
       ? allColors.reduce((min, c) => c.price < min.price ? c : min, allColors[0]) // V9.51 KEY
       : { price: 0, countInStock: 0 };
@@ -186,23 +203,37 @@ const getProducts = asyncHandler(async (req, res) => {
 // @access Public
 const getProductBySlug = asyncHandler(async (req, res) => {
   const product = await Product.findOne({ slug: req.params.slug })
-   .populate('user', 'name') // who added it
-   .populate('accessories', 'name slug price image type countInStock'); // FBT
+    .populate('user', 'name') // who added it
+    .populate('accessories', 'name slug price image type countInStock'); // FBT
 
   if (product) {
-    // V9.48 KEY: NO MORE V8 FALLBACKS. SEND RAW DB DATA
-    // Frontend V9.39+ logic: 
-    // const selectedVariant = product.variants[selectedVariantIndex];
-    // const selectedColor = selectedVariant.colors[selectedColorIndex];
-    // const finalPrice = selectedColor.price;
+     
 
     const allColors = product.variants?.flatMap(v => v.colors) || []; // V9.48 KEY: Flatten all colors for swatch UI
     const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name, keep first
+    const variants = product.variants.map((variant) => ({
+  ...variant.toObject(),
+  colors: variant.colors.map((color) => {
+    const discountInfo = calculateDiscount(color.price, color.discount);
+
+    return {
+      ...color.toObject(),
+       originalPrice: color.price,
+      discount: {
+        ...color.discount,
+        isActive: discountInfo.isActive,
+      },
+      finalPrice: discountInfo.finalPrice,
+      discountAmount: discountInfo.discountAmount,
+    };
+  }),
+}));
 
     const productData = {
-     ...product.toObject(),
+      ...product.toObject(),
+      variants,
       // V9.48 KEY: Only helper = all unique colors. No fake price/stock/root fields
-      colors: uniqueColors, 
+      colors: uniqueColors,
     };
 
     res.json(productData);
@@ -225,11 +256,29 @@ const getProductById = asyncHandler(async (req, res) => {
 
     const allColors = product.variants?.flatMap(v => v.colors) || []; // V9.49 KEY: Flatten for swatch table
     const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name, keep first
+    const variants = product.variants.map((variant) => ({
+  ...variant.toObject(),
+  colors: variant.colors.map((color) => {
+    const discountInfo = calculateDiscount(color.price, color.discount);
+
+    return {
+      ...color.toObject(),
+       originalPrice: color.price,
+      discount: {
+        ...color.discount,
+        isActive: discountInfo.isActive,
+      },
+      finalPrice: discountInfo.finalPrice,
+      discountAmount: discountInfo.discountAmount,
+    };
+  }),
+}));
 
     const productData = {
-     ...product.toObject(),
+      ...product.toObject(),
+      variants,
       // V9.49 KEY: Only helper = all unique colors. No fake price/stock/root fields
-      colors: uniqueColors, 
+      colors: uniqueColors,
     };
 
     res.json(productData);
@@ -260,15 +309,15 @@ const getProductById = asyncHandler(async (req, res) => {
 // @route   PUT /api/products/:id
 // @access  Private/Admin
 const updateProduct = asyncHandler(async (req, res) => {
-  const { 
-    name, 
-    brand, 
-    category, 
-    variants, 
-    accessories, 
-    keywords, 
-    metaTitle, 
-    metaDescription, 
+  const {
+    name,
+    brand,
+    category,
+    variants,
+    accessories,
+    keywords,
+    metaTitle,
+    metaDescription,
     imagesToDelete // V38.64 KEY: Get delete queue from frontend
   } = req.body;
 
@@ -280,38 +329,64 @@ const updateProduct = asyncHandler(async (req, res) => {
   }
 
   // V38.64 KEY 1: DELETE IMAGES FROM CLOUDINARY FIRST
-  if(imagesToDelete?.length > 0){
+  if (imagesToDelete?.length > 0) {
     console.log('V38.64 DELETE REQUEST:', imagesToDelete);
     const results = await Promise.allSettled(
       imagesToDelete.map(id => cloudinary.uploader.destroy(id))
     );
     const deleted = results.filter(r => r.status === 'fulfilled').length;
-    console.log(`V38.64 Deleted ${deleted} images from Cloudinary`);
+
   }
 
   // Validation
-  if (!variants || variants.length === 0) { 
-    res.status(400); 
-    throw new Error('Please add at least 1 variant'); 
+  if (!variants || variants.length === 0) {
+    res.status(400);
+    throw new Error('Please add at least 1 variant');
   }
+
 
   // V9.52 KEY 2: Slug update
   if (name && name !== product.name) {
-    product.slug = slugify(name, { 
-      lower: true, 
-      strict: true, 
-      remove: /[*+~.()'"!:@]/g 
+    product.slug = slugify(name, {
+      lower: true,
+      strict: true,
+      remove: /[*+~.()'"!:@]/g
     });
   }
-
   // V10.13.50 KEY: Strip newFiles before saving to DB
-const cleanVariants = variants.map(v => ({
-  ...v,
-  colors: v.colors.map(c => {
-    const { newFiles, ...rest } = c; // remove frontend-only field
-    return rest;
-  })
-}));
+  const cleanVariants = variants.map((v) => ({
+    ...v,
+    colors: v.colors.map((c) => {
+      const { newFiles, ...rest } = c;
+
+      return {
+        ...rest,
+        discount: (() => {
+          const discount =
+            typeof c.discount === "object"
+              ? {
+                type: c.discount.type || "percentage",
+                value: Number(c.discount.value) || 0,
+                startDate: c.discount.startDate || null,
+                endDate: c.discount.endDate || null,
+              }
+              : {
+                type: "percentage",
+                value: Number(c.discount || 0),
+                startDate: null,
+                endDate: null,
+              };
+
+          discount.isActive =
+            discount.value > 0 &&
+            (!discount.startDate || new Date() >= new Date(discount.startDate)) &&
+            (!discount.endDate || new Date() <= new Date(discount.endDate));
+
+          return discount;
+        })(),
+      };
+    }),
+  }));
 
   // V9.52 KEY 3: Direct assign. NO `specs` root. NO Multer.
   product.name = name;
@@ -325,6 +400,9 @@ const cleanVariants = variants.map(v => ({
   product.variants = cleanVariants; // V38.64 KEY: Save variants with imagePublicId
 
   const updatedProduct = await product.save();
+  // console.log(
+  //   JSON.stringify(updatedProduct.variants, null, 2)
+  // );
   res.json(updatedProduct);
 });
 
@@ -385,13 +463,13 @@ const deleteProduct = asyncHandler(async (req, res) => {
     // 6. CLEAN UP USER CARTS AND WISHLISTS
     const productId = new mongoose.Types.ObjectId(req.params.id);
     await User.updateMany({ wishlist: productId }, { $pull: { wishlist: productId } });
-    await User.updateMany({ 'cart.product': productId }, { $pull: { cart: { product: productId } }});
+    await User.updateMany({ 'cart.product': productId }, { $pull: { cart: { product: productId } } });
 
     res.json({ message: 'Product and all images removed' });
 
   } catch (error) {
     console.error('Delete product error:', error);
-    await product.deleteOne().catch(() => {});
+    await product.deleteOne().catch(() => { });
     res.status(500).json({ message: error.message || 'Server error' });
   }
 });
@@ -408,7 +486,7 @@ const createProductReview = asyncHandler(async (req, res) => {
 
   if (product) {
     const alreadyReviewed = product.reviews.find(
-      (r) => r.user.toString() === req.user._id.toString() && r.color === color && 
+      (r) => r.user.toString() === req.user._id.toString() && r.color === color &&
         r.storage === storage
     );
 
@@ -418,15 +496,15 @@ const createProductReview = asyncHandler(async (req, res) => {
     }
 
     // Check if user purchased this product
-const hasPurchased = await Order.findOne({
-  user: req.user._id,
-  isPaid: true,
-  orderItems: {
-    $elemMatch: {
-      product: product._id,
-    },
-  },
-});
+    const hasPurchased = await Order.findOne({
+      user: req.user._id,
+      isPaid: true,
+      orderItems: {
+        $elemMatch: {
+          product: product._id,
+        },
+      },
+    });
 
     // V38.12 KEY: CREATE REVIEW WITH IMAGES AS OBJECTS
     const review = {
@@ -450,7 +528,7 @@ const hasPurchased = await Order.findOne({
             url: img.secure_url,
             imagePublicId: img.public_id,
           });
-        } 
+        }
         // Case 2: Frontend sends {url, imagePublicId} already
         else if (typeof img === 'object' && img.url && img.imagePublicId) {
           review.images.push({
@@ -470,7 +548,7 @@ const hasPurchased = await Order.findOne({
 
     product.reviews.push(review);
     product.numReviews = product.reviews.length;
-    
+
     // V38.12 KEY: Calculate rating for all reviews
     product.rating = product.reviews.reduce((acc, item) => item.rating + acc, 0) / product.reviews.length;
 
@@ -514,38 +592,38 @@ const getProductReviews = asyncHandler(async (req, res) => {
 
   // Filter by Storage
   if (storage && storage !== 'all') {
-  reviews = reviews.filter(
-    (review) => review.storage === storage
-  );
-}
-
-//rating filter
-if (rating) {
-  reviews = reviews.filter(
-    (review) => review.rating === Number(rating)
-  );
-}
-
-// Search reviews
-if (keyword && keyword.trim()) {
-  const search = keyword.trim().toLowerCase();
-
-  reviews = reviews.filter((review) => {
-    return (
-      review.comment?.toLowerCase().includes(search) ||
-      review.title?.toLowerCase().includes(search) ||
-      review.name?.toLowerCase().includes(search)
-      
+    reviews = reviews.filter(
+      (review) => review.storage === storage
     );
-  });
-}
+  }
 
- // Convert to plain object and calculate vote counts
-reviews = reviews.map((review) => ({
-  ...review.toObject(),
-  helpfulCount: review.helpful ? review.helpful.length : 0,
-  notHelpfulCount: review.notHelpful ? review.notHelpful.length : 0,
-}));
+  //rating filter
+  if (rating) {
+    reviews = reviews.filter(
+      (review) => review.rating === Number(rating)
+    );
+  }
+
+  // Search reviews
+  if (keyword && keyword.trim()) {
+    const search = keyword.trim().toLowerCase();
+
+    reviews = reviews.filter((review) => {
+      return (
+        review.comment?.toLowerCase().includes(search) ||
+        review.title?.toLowerCase().includes(search) ||
+        review.name?.toLowerCase().includes(search)
+
+      );
+    });
+  }
+
+  // Convert to plain object and calculate vote counts
+  reviews = reviews.map((review) => ({
+    ...review.toObject(),
+    helpfulCount: review.helpful ? review.helpful.length : 0,
+    notHelpfulCount: review.notHelpful ? review.notHelpful.length : 0,
+  }));
 
   // Sorting
   switch (sort) {
@@ -562,17 +640,17 @@ reviews = reviews.map((review) => ({
         (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
       );
       break;
-    case "helpful": 
+    case "helpful":
       reviews.sort(
         (a, b) => b.helpfulCount - a.helpfulCount
       );
       break;
-       case "notHelpful": 
-    reviews.sort(
-      (a, b) => b.notHelpfulCount - a.notHelpfulCount
-    );
-    break;
-      
+    case "notHelpful":
+      reviews.sort(
+        (a, b) => b.notHelpfulCount - a.notHelpfulCount
+      );
+      break;
+
 
     default:
       // newest
@@ -692,7 +770,7 @@ const deleteProductReview = asyncHandler(async (req, res) => {
 
   // 1. Delete images from Cloudinary first V33.25
   const publicIdsToDelete = [];
-  if (review.images?.length > 0) { 
+  if (review.images?.length > 0) {
     review.images.forEach(img => {
       if (img.imagePublicId) publicIdsToDelete.push(img.imagePublicId); // V33.25 KEY
     });
@@ -729,17 +807,17 @@ const deleteProductReview = asyncHandler(async (req, res) => {
 const markReviewHelpful = asyncHandler(async (req, res) => {
   //const product = await Product.findById(req.params.id);
   let product = await Product.findOne({ slug: req.params.id })
-if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-  product = await Product.findById(req.params.id)
-}
+  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+    product = await Product.findById(req.params.id)
+  }
 
   if (product) {
     const review = product.reviews.id(req.params.reviewId);
 
     // Remove from Not Helpful if already voted
-review.notHelpful = review.notHelpful.filter(
-  (u) => u.toString() !== req.user._id.toString()
-);
+    review.notHelpful = review.notHelpful.filter(
+      (u) => u.toString() !== req.user._id.toString()
+    );
 
     if (!review) {
       res.status(404);
@@ -828,9 +906,9 @@ const addAdminReply = asyncHandler(async (req, res) => {
   const { reply: replyText } = req.body; // <-- Only get reply from body
   //const product = await Product.findById(req.params.id); // productId from URL
   let product = await Product.findOne({ slug: req.params.id })
-if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-  product = await Product.findById(req.params.id)
-}
+  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+    product = await Product.findById(req.params.id)
+  }
   const reviewId = req.params.reviewId; // <-- Get reviewId from URL params
 
   if (!product) {
@@ -863,9 +941,9 @@ const editAdminReply = asyncHandler(async (req, res) => {
   const reviewId = req.params.reviewId; // <-- Get from URL params
   //const product = await Product.findById(req.params.id);
   let product = await Product.findOne({ slug: req.params.id })
-if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-  product = await Product.findById(req.params.id)
-}
+  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+    product = await Product.findById(req.params.id)
+  }
 
   if (!product) {
     res.status(404);
@@ -893,9 +971,9 @@ const deleteAdminReply = asyncHandler(async (req, res) => {
   const reviewId = req.params.reviewId; // <-- Get from URL params, not body
   //const product = await Product.findById(req.params.id);
   let product = await Product.findOne({ slug: req.params.id })
-if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-  product = await Product.findById(req.params.id)
-}
+  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
+    product = await Product.findById(req.params.id)
+  }
 
   if (!product) {
     res.status(404);

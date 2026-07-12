@@ -11,8 +11,10 @@ const accessorySchema = mongoose.Schema({
   },
   price: { type: Number, required: true }, // $29
   countInStock: { type: Number, required: true, default: 0 }, // 50
-  image: { type: String, required: true }, // Main image
-  images: { type: [String], default: [] }, // Gallery
+  images: [{ // V9.59 KEY: V9.47 Schema
+    url: { type: String, required: true },
+    imagePublicId: { type: String },
+  }],
   description: { type: String },
   
   // Link it to phones. Ex: Case works with iPhone 17

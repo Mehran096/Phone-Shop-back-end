@@ -55,6 +55,8 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     qty: itemFromClient.qty,
     image: itemFromClient.image,
     price: Number(itemFromClient.price),
+    originalPrice: Number(itemFromClient.originalPrice),
+    discountAmount: Number(itemFromClient.discountAmount || 0),
     color: itemFromClient.color,
     storage: itemFromClient.storage,
     slug: itemFromClient.slug,
@@ -150,8 +152,39 @@ router.post('/', protect, asyncHandler(async (req, res) => {
 
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px">
                       <tr>
-                        <td style="padding:8px 0; font-size:14px"><strong>Total:</strong></td>
-                        <td align="right" style="padding:8px 0; font-size:14px; font-weight:600">${createdOrder.currency} ${createdOrder.totalPrice}</td>
+                        <td style="padding:8px 0;font-size:14px;">
+                          <strong>Items:</strong>
+                        </td>
+                        <td align="right">
+                          ${createdOrder.currency} ${createdOrder.itemsPrice.toFixed(2)}
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td style="padding:8px 0;font-size:14px;">
+                          <strong>Shipping:</strong>
+                        </td>
+                        <td align="right">
+                          ${createdOrder.currency} ${createdOrder.shippingPrice.toFixed(2)}
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td style="padding:8px 0;font-size:14px;">
+                          <strong>Tax:</strong>
+                        </td>
+                        <td align="right">
+                          ${createdOrder.currency} ${createdOrder.taxPrice.toFixed(2)}
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td style="padding:8px 0;font-size:16px;font-weight:bold;">
+                          Total:
+                        </td>
+                        <td align="right" style="font-size:16px;font-weight:bold;">
+                          ${createdOrder.currency} ${createdOrder.totalPrice.toFixed(2)}
+                        </td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; font-size:14px"><strong>Payment:</strong></td>
@@ -624,7 +657,9 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     name: matchingItemFromDB.name,
     qty: itemFromClient.qty,
     image: colorVariant.images?.[0]?.url || '', // V24.1: First image
-    price: colorVariant.price, // V24.1: from nested color
+    price: Number(itemFromClient.price), // V24.1: from nested color
+    originalPrice: Number(itemFromClient.originalPrice),
+    discountAmount: Number(itemFromClient.discountAmount || 0),
     product: itemFromClient.product,
     color: itemFromClient.color,
     storage: itemFromClient.storage,
@@ -709,7 +744,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     price_data: {
       currency: currency, // 'usd' or 'pkr'
       product_data: {
-        name: `${item.name} - ${item.color} ${item.storage}`,
+        name: `${item.name} (${item.color}, ${item.storage})`,
         images: [item.image],
       },
       unit_amount: Math.round(item.price * 100), // Only product price
