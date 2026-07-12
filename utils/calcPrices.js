@@ -27,7 +27,7 @@ const calcPrices = (orderItems, shippingAddress, paymentMethod) => {
 
   // FIX: Tax only for COD, 0 for Stripe
   const taxPrice = addDecimals(
-    paymentMethod === 'COD'? Number((0.15 * itemsPrice).toFixed(2)) : 0
+    paymentMethod === 'COD'? Number((0.05 * itemsPrice).toFixed(2)) : 0
   )
 
   const totalPrice = (
