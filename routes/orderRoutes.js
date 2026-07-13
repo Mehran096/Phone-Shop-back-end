@@ -281,69 +281,69 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
 // @desc    Update order to paid - Stripe/PayPal/JazzCash
 // @route   PUT /api/orders/:id/pay
 // @access  Private
-router.put('/:id/pay', protect, asyncHandler(async (req, res) => {
-  const order = await Order.findById(req.params.id).populate('user', 'name email')
+// router.put('/:id/pay', protect, asyncHandler(async (req, res) => {
+//   const order = await Order.findById(req.params.id).populate('user', 'name email')
 
-  if (order) {
-    if (order.isPaid) {
-      res.status(400)
-      throw new Error('Order is already paid')
-    }
+//   if (order) {
+//     if (order.isPaid) {
+//       res.status(400)
+//       throw new Error('Order is already paid')
+//     }
 
-    order.isPaid = true
-    order.paidAt = Date.now()
-    order.paymentResult = {
-      id: req.body.id || '',
-      status: req.body.status || 'succeeded',
-      update_time: req.body.update_time || new Date().toISOString(),
-      email_address: req.body.email_address || order.user.email,
-    }
+//     order.isPaid = true
+//     order.paidAt = Date.now()
+//     order.paymentResult = {
+//       id: req.body.id || '',
+//       status: req.body.status || 'succeeded',
+//       update_time: req.body.update_time || new Date().toISOString(),
+//       email_address: req.body.email_address || order.user.email,
+//     }
 
-    const updatedOrder = await order.save()
+//     const updatedOrder = await order.save()
 
-    // Send "Payment Confirmed" email
-    try {
-      await sendEmail({
-        email: order.user.email,
-        subject: `Payment Confirmed - Order #${order._id.toString().slice(-6)}`,
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
-            <h2>Payment Received, ${order.user.name}!</h2>
-            <p>Your payment of <strong>${order.currency} ${order.totalPrice}</strong> for Order #${order._id.toString().slice(-6)} was successful.</p>
+//     // Send "Payment Confirmed" email
+//     try {
+//       await sendEmail({
+//         email: order.user.email,
+//         subject: `Payment Confirmed - Order #${order._id.toString().slice(-6)}`,
+//         html: `
+//           <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
+//             <h2>Payment Received, ${order.user.name}!</h2>
+//             <p>Your payment of <strong>${order.currency} ${order.totalPrice}</strong> for Order #${order._id.toString().slice(-6)} was successful.</p>
             
-            <h3>What's Next?</h3>
-            <p>We're now preparing your items for shipment. You'll receive another email with tracking info once it ships.</p>
+//             <h3>What's Next?</h3>
+//             <p>We're now preparing your items for shipment. You'll receive another email with tracking info once it ships.</p>
             
-            <h3>Order Details</h3>
-            <p><strong>Items:</strong> ${order.orderItems.length}</p>
-            <p><strong>Payment Method:</strong> ${order.paymentMethod}</p>
+//             <h3>Order Details</h3>
+//             <p><strong>Items:</strong> ${order.orderItems.length}</p>
+//             <p><strong>Payment Method:</strong> ${order.paymentMethod}</p>
             
-            <h3>Shipping To:</h3>
-            <p>
-              <strong>Phone:</strong> ${order.shippingAddress.phone}<br/>
-              ${order.shippingAddress.address}<br/>
-              ${order.shippingAddress.city}, ${order.shippingAddress.postalCode}<br/>
-              ${order.shippingAddress.country}
-            </p>
+//             <h3>Shipping To:</h3>
+//             <p>
+//               <strong>Phone:</strong> ${order.shippingAddress.phone}<br/>
+//               ${order.shippingAddress.address}<br/>
+//               ${order.shippingAddress.city}, ${order.shippingAddress.postalCode}<br/>
+//               ${order.shippingAddress.country}
+//             </p>
             
-            <a href="${process.env.FRONTEND_URL}/order/${order._id}"
-               style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:16px">
-               Track Your Order
-            </a>
-          </div>
-        `,
-      })
-      console.log('Payment email sent to:', order.user.email)
-    } catch (error) {
-      console.log('Payment email failed:', error.message)
-    }
+//             <a href="${process.env.FRONTEND_URL}/order/${order._id}"
+//                style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:16px">
+//                Track Your Order
+//             </a>
+//           </div>
+//         `,
+//       })
+//       console.log('Payment email sent to:', order.user.email)
+//     } catch (error) {
+//       console.log('Payment email failed:', error.message)
+//     }
 
-    res.json(updatedOrder)
-  } else {
-    res.status(404)
-    throw new Error('Order not found')
-  }
-}))
+//     res.json(updatedOrder)
+//   } else {
+//     res.status(404)
+//     throw new Error('Order not found')
+//   }
+// }))
 
 // @desc    Update order to shipped - Admin adds tracking
 // @route   PUT /api/orders/:id/deliver
@@ -446,8 +446,16 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
   if (order.paymentMethod === 'COD' && !order.isPaid) {
     order.isPaid = true
     order.paidAt = Date.now()
+
+    // NEW: INCREASE allSales FOR EACH PRODUCT IN ORDER
+    for (const item of order.orderItems) {
+      await Product.findByIdAndUpdate(item.product, {
+        $inc: { allSales: item.qty } // add quantity to allSales
+      })
+    }
   }
 
+  
 
   const updatedOrder = await order.save()
 
@@ -871,6 +879,13 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
         update_time: new Date().toISOString(),
         email_address: customerEmail,
       }
+
+       // NEW: INCREASE allSales FOR EACH PRODUCT WHEN PAYMENT SUCCESS
+    for (const item of order.orderItems) {
+      await Product.findByIdAndUpdate(item.product, {
+        $inc: { allSales: item.qty } // add quantity to allSales
+      })
+    }
 
       const updatedOrder = await order.save()
 

@@ -24,8 +24,15 @@ const createProduct = asyncHandler(async (req, res) => {
   //console.log('V9.47 BODY RECEIVED:', JSON.stringify(req.body, null, 2)); // Debug
 
   const {
-    name, brand, category, metaTitle, metaDescription, // V9.47 KEY: No description/specs
-    keywords = [], accessories = [], variants = [],
+    name,
+    brand,
+    category,
+    metaTitle,
+    metaDescription, // V9.47 KEY: No description/specs
+    keywords = [],
+    accessories = [],
+    variants = [],
+    allSales = 0,
   } = req.body;
 
   if (!name || !brand) { // V9.47 KEY: description removed
@@ -99,6 +106,7 @@ const createProduct = asyncHandler(async (req, res) => {
       accessories,
       // specs: REMOVED V9.47 KEY
       variants: cleanVariants, // V9.47 KEY: All data lives here
+      allSales: 0,
       numReviews: 0,
       rating: 0,
     });
@@ -179,7 +187,7 @@ const getProducts = asyncHandler(async (req, res) => {
 
   // 4. Frontend helper: V9.51 KEY = Min price from all Colors for shop card
   const productsWithMin = products.map(p => {
-    
+
     const allColors = p.variants?.flatMap(v => v.colors) || []; // V9.51 KEY: Flatten all SKUs
     const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name
 
@@ -207,27 +215,27 @@ const getProductBySlug = asyncHandler(async (req, res) => {
     .populate('accessories', 'name slug price image type countInStock'); // FBT
 
   if (product) {
-     
+
 
     const allColors = product.variants?.flatMap(v => v.colors) || []; // V9.48 KEY: Flatten all colors for swatch UI
     const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name, keep first
     const variants = product.variants.map((variant) => ({
-  ...variant.toObject(),
-  colors: variant.colors.map((color) => {
-    const discountInfo = calculateDiscount(color.price, color.discount);
+      ...variant.toObject(),
+      colors: variant.colors.map((color) => {
+        const discountInfo = calculateDiscount(color.price, color.discount);
 
-    return {
-      ...color.toObject(),
-       originalPrice: color.price,
-      discount: {
-        ...color.discount,
-        isActive: discountInfo.isActive,
-      },
-      finalPrice: discountInfo.finalPrice,
-      discountAmount: discountInfo.discountAmount,
-    };
-  }),
-}));
+        return {
+          ...color.toObject(),
+          originalPrice: color.price,
+          discount: {
+            ...color.discount,
+            isActive: discountInfo.isActive,
+          },
+          finalPrice: discountInfo.finalPrice,
+          discountAmount: discountInfo.discountAmount,
+        };
+      }),
+    }));
 
     const productData = {
       ...product.toObject(),
@@ -257,22 +265,22 @@ const getProductById = asyncHandler(async (req, res) => {
     const allColors = product.variants?.flatMap(v => v.colors) || []; // V9.49 KEY: Flatten for swatch table
     const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name, keep first
     const variants = product.variants.map((variant) => ({
-  ...variant.toObject(),
-  colors: variant.colors.map((color) => {
-    const discountInfo = calculateDiscount(color.price, color.discount);
+      ...variant.toObject(),
+      colors: variant.colors.map((color) => {
+        const discountInfo = calculateDiscount(color.price, color.discount);
 
-    return {
-      ...color.toObject(),
-       originalPrice: color.price,
-      discount: {
-        ...color.discount,
-        isActive: discountInfo.isActive,
-      },
-      finalPrice: discountInfo.finalPrice,
-      discountAmount: discountInfo.discountAmount,
-    };
-  }),
-}));
+        return {
+          ...color.toObject(),
+          originalPrice: color.price,
+          discount: {
+            ...color.discount,
+            isActive: discountInfo.isActive,
+          },
+          finalPrice: discountInfo.finalPrice,
+          discountAmount: discountInfo.discountAmount,
+        };
+      }),
+    }));
 
     const productData = {
       ...product.toObject(),
@@ -318,6 +326,7 @@ const updateProduct = asyncHandler(async (req, res) => {
     keywords,
     metaTitle,
     metaDescription,
+    //allSales,
     imagesToDelete // V38.64 KEY: Get delete queue from frontend
   } = req.body;
 
@@ -397,6 +406,7 @@ const updateProduct = asyncHandler(async (req, res) => {
   product.keywords = keywords; // array
   product.metaTitle = metaTitle?.slice(0, 60) || '';
   product.metaDescription = metaDescription?.slice(0, 160) || '';
+  //product.allSales = allSales?? product.allSales;
   product.variants = cleanVariants; // V38.64 KEY: Save variants with imagePublicId
 
   const updatedProduct = await product.save();
@@ -404,6 +414,15 @@ const updateProduct = asyncHandler(async (req, res) => {
   //   JSON.stringify(updatedProduct.variants, null, 2)
   // );
   res.json(updatedProduct);
+});
+
+//Best sellers pproduct
+const getBestSellerProducts = asyncHandler(async (req, res) => {
+  const products = await Product.find({})
+    .sort({ allSales: -1 })
+    .limit(8);
+
+  res.json(products);
 });
 
 
@@ -1023,6 +1042,7 @@ module.exports = {
   getProductBySlug,
   updateProduct,
   deleteProduct,
+  getBestSellerProducts,
   createProductReview,
   getProductReviews,
   updateProductSpecs,
