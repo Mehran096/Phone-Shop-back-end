@@ -425,6 +425,59 @@ const getBestSellerProducts = asyncHandler(async (req, res) => {
   res.json(products);
 });
 
+// Deals & Discounts Products
+const getDealsProducts = asyncHandler(async (req, res) => {
+  const products = await Product.find({
+    variants: {
+      $elemMatch: {
+        colors: {
+          $elemMatch: {
+            "discount.isActive": true,
+          },
+        },
+      },
+    },
+  }).sort({ updatedAt: -1 });
+
+  const deals = products.map((product) => {
+    let bestVariant = null;
+    let bestColor = null;
+    let maxDiscount = 0;
+
+    product.variants.forEach((variant) => {
+      variant.colors.forEach((color) => {
+        if (
+          color.discount?.isActive &&
+          color.discount.value > maxDiscount
+        ) {
+          maxDiscount = color.discount.value;
+          bestVariant = variant;
+          bestColor = color;
+        }
+      });
+    });
+
+    return {
+      ...product.toObject(),
+
+      // These will be used by the frontend
+      defaultStorage: bestVariant?.storage,
+      defaultColor: bestColor?.name,
+      bestDiscount: maxDiscount,
+    };
+  });
+
+  res.json(deals);
+});
+
+// New Arrival Products
+const getNewArrivalProducts = asyncHandler(async (req, res) => {
+  const products = await Product.find({})
+    .sort({ createdAt: -1 }).limit(8);
+
+  res.json(products);
+});
+
 
 
 // @route   DELETE /api/products/:id
@@ -1043,6 +1096,8 @@ module.exports = {
   updateProduct,
   deleteProduct,
   getBestSellerProducts,
+  getDealsProducts,
+  getNewArrivalProducts,
   createProductReview,
   getProductReviews,
   updateProductSpecs,

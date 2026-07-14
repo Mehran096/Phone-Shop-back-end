@@ -7,6 +7,8 @@ const {
   getProductBySlug,
   updateProduct,
   getBestSellerProducts,
+  getDealsProducts,
+  getNewArrivalProducts,
   deleteProduct,
   createProductReview,
   getProductReviews,
@@ -37,6 +39,8 @@ router.route('/')
   .post(protect, admin, createProduct)
 
 router.get('/bestsellers', getBestSellerProducts);
+router.get('/deals', getDealsProducts);
+router.get('/new-arrivals', getNewArrivalProducts);
 
 router.route('/slug/:slug').get(getProductBySlug)
 
