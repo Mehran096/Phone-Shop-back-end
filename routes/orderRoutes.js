@@ -882,7 +882,7 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
 
        // NEW: INCREASE allSales FOR EACH PRODUCT WHEN PAYMENT SUCCESS
     for (const item of order.orderItems) {
-      await Product.findByIdAndUpdate(item.product, {
+      await Product.findByIdAndUpdate(item.product._id || item.product, {
         $inc: { allSales: item.qty } // add quantity to allSales
       })
     }
