@@ -89,7 +89,7 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     await User.findByIdAndUpdate(req.user._id, { cartItems: [] })
   }
 
-   // === V32.66 DEBUG START ===
+  // === V32.66 DEBUG START ===
   // const testImageUrl = `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${createdOrder.orderItems[0].image}`
   // console.log('====================================')
   // console.log('EMAIL IMAGE URL TEST:', testImageUrl)
@@ -130,7 +130,7 @@ router.post('/', protect, asyncHandler(async (req, res) => {
                         <tr style="border-bottom:1px solid #eee">
                           <td style="padding:12px 0; vertical-align:top; width:70px">
                             <img 
-                              src="${item.image.startsWith('http')? item.image : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}`}" 
+                              src="${item.image.startsWith('http') ? item.image : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}`}" 
                               alt="${item.name}" 
                               width="60" 
                               height="60"
@@ -310,14 +310,14 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
 //           <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
 //             <h2>Payment Received, ${order.user.name}!</h2>
 //             <p>Your payment of <strong>${order.currency} ${order.totalPrice}</strong> for Order #${order._id.toString().slice(-6)} was successful.</p>
-            
+
 //             <h3>What's Next?</h3>
 //             <p>We're now preparing your items for shipment. You'll receive another email with tracking info once it ships.</p>
-            
+
 //             <h3>Order Details</h3>
 //             <p><strong>Items:</strong> ${order.orderItems.length}</p>
 //             <p><strong>Payment Method:</strong> ${order.paymentMethod}</p>
-            
+
 //             <h3>Shipping To:</h3>
 //             <p>
 //               <strong>Phone:</strong> ${order.shippingAddress.phone}<br/>
@@ -325,7 +325,7 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
 //               ${order.shippingAddress.city}, ${order.shippingAddress.postalCode}<br/>
 //               ${order.shippingAddress.country}
 //             </p>
-            
+
 //             <a href="${process.env.FRONTEND_URL}/order/${order._id}"
 //                style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:16px">
 //                Track Your Order
@@ -455,7 +455,7 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
     }
   }
 
-  
+
 
   const updatedOrder = await order.save()
 
@@ -641,39 +641,39 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
 
   const productMap = new Map(itemsFromDB.map(p => [p._id.toString(), p]));
 
- const dbOrderItems = orderItems.map((itemFromClient) => {
-  const matchingItemFromDB = productMap.get(itemFromClient.product);
+  const dbOrderItems = orderItems.map((itemFromClient) => {
+    const matchingItemFromDB = productMap.get(itemFromClient.product);
 
-  // V24.1 KEY: Read from variants[0].colors
-  const variantDoc = matchingItemFromDB.variants?.find(
-    v => v.storage === (itemFromClient.storage || itemFromClient.variant)
-  );
-  if (!variantDoc) {
-    res.status(400);
-    throw new Error(`Variant "${itemFromClient.variant}" not available`);
-  }
+    // V24.1 KEY: Read from variants[0].colors
+    const variantDoc = matchingItemFromDB.variants?.find(
+      v => v.storage === (itemFromClient.storage || itemFromClient.variant)
+    );
+    if (!variantDoc) {
+      res.status(400);
+      throw new Error(`Variant "${itemFromClient.variant}" not available`);
+    }
 
-  const colorVariant = variantDoc.colors?.find(
-    (c) => c.name === itemFromClient.color
-  );
-  if (!colorVariant) {
-    res.status(400);
-    throw new Error(`Color "${itemFromClient.color}" not available for ${matchingItemFromDB.name}`);
-  }
+    const colorVariant = variantDoc.colors?.find(
+      (c) => c.name === itemFromClient.color
+    );
+    if (!colorVariant) {
+      res.status(400);
+      throw new Error(`Color "${itemFromClient.color}" not available for ${matchingItemFromDB.name}`);
+    }
 
-  return {
-    name: matchingItemFromDB.name,
-    qty: itemFromClient.qty,
-    image: colorVariant.images?.[0]?.url || '', // V24.1: First image
-    price: Number(itemFromClient.price), // V24.1: from nested color
-    originalPrice: Number(itemFromClient.originalPrice),
-    discountAmount: Number(itemFromClient.discountAmount || 0),
-    product: itemFromClient.product,
-    color: itemFromClient.color,
-    storage: itemFromClient.storage,
-    slug: matchingItemFromDB.slug,
-  };
-});
+    return {
+      name: matchingItemFromDB.name,
+      qty: itemFromClient.qty,
+      image: colorVariant.images?.[0]?.url || '', // V24.1: First image
+      price: Number(itemFromClient.price), // V24.1: from nested color
+      originalPrice: Number(itemFromClient.originalPrice),
+      discountAmount: Number(itemFromClient.discountAmount || 0),
+      product: itemFromClient.product,
+      color: itemFromClient.color,
+      storage: itemFromClient.storage,
+      slug: matchingItemFromDB.slug,
+    };
+  });
 
   // 2. Calculate prices - we still save shipping/tax to DB for records
   const { itemsPrice, shippingPrice, taxPrice, totalPrice } = calcPrices(
@@ -716,7 +716,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     <h3>Items:</h3>  <!-- V21.6 KEY: ADD THIS TABLE -->
     ${order.orderItems.map(item => `
       <div style="display:flex;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px">
-        <img src="${item.image.startsWith('http')? item.image : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}`}" width="60" style="border-radius:6px;margin-right:12px"/>
+        <img src="${item.image.startsWith('http') ? item.image : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}`}" width="60" style="border-radius:6px;margin-right:12px"/>
         <div style="flex:1">
           <div style="font-weight:600">${item.name}</div>
           <div style="font-size:13px;color:#666">Color: ${item.color} | Storage: ${item.storage}</div>
@@ -863,7 +863,18 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
         return res.status(404).json({ message: 'Order not found' })
       }
 
+      // NEW: INCREASE allSales FOR EACH PRODUCT WHEN PAYMENT SUCCESS
+      //console.log('UPDATING allSales NOW')
+      for (const item of order.orderItems) {
+        //console.log('Product:', item.product, 'Qty:', item.qty)
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: { allSales: item.qty }
+        })
+      }
+
+
       // Prevent double updates
+
       if (order.isPaid) {
         return res.json(order)
       }
@@ -880,13 +891,7 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
         email_address: customerEmail,
       }
 
-       // NEW: INCREASE allSales FOR EACH PRODUCT WHEN PAYMENT SUCCESS
-    for (const item of order.orderItems) {
-      await Product.findByIdAndUpdate(item.product._id || item.product, {
-        $inc: { allSales: item.qty } // add quantity to allSales
-      })
-    }
-
+ 
       const updatedOrder = await order.save()
 
       // FIX 3: SEND "PAYMENT SUCCESSFUL" EMAIL
