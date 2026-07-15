@@ -129,6 +129,8 @@ const getProducts = asyncHandler(async (req, res) => {
 
   const { keyword, brand, category, minPrice, maxPrice, storage } = req.query;
 
+  const isSuggestions = req.query.suggestions === 'true';
+
   // 1. Search Filter: V9.51 KEY = variants.storage + variants.colors.name
   const searchFilter = keyword
     ? {
@@ -175,7 +177,9 @@ const getProducts = asyncHandler(async (req, res) => {
 
   const filter = { ...searchFilter, ...brandFilter, ...categoryFilter, ...storageFilter, ...priceFilter };
 
-  const count = await Product.countDocuments(filter);
+  const count = isSuggestions
+  ? 0
+  : await Product.countDocuments(filter);
 
   // 3. Select: V9.51 KEY = Removed `specs` + `price` root
   const products = await Product.find(filter)
@@ -203,7 +207,15 @@ const getProducts = asyncHandler(async (req, res) => {
     };
   });
 
-  res.json({ products: productsWithMin, page, pages: Math.ceil(count / pageSize) });
+ if (isSuggestions) {
+  return res.json(productsWithMin);
+}
+
+res.json({
+  products: productsWithMin,
+  page,
+  pages: Math.ceil(count / pageSize),
+});
 });
 
 // @desc Fetch single product by slug
