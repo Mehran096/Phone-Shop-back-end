@@ -490,6 +490,66 @@ const getNewArrivalProducts = asyncHandler(async (req, res) => {
   res.json(products);
 });
 
+// @desc    Compare phones
+// @route   GET /api/products/compare
+// @access  Public
+const compareProducts = asyncHandler(async (req, res) => {
+  const { slugs } = req.query;
+
+  if (!slugs) {
+    res.status(400);
+    throw new Error('Product slugs are required');
+  }
+
+  const slugArray = slugs.split(',');
+
+  const products = await Product.find({
+    slug: { $in: slugArray },
+  }).populate('user', 'name');
+
+  if (!products.length) {
+    res.status(404);
+    throw new Error('Products not found');
+  }
+
+  const compareProducts = products.map((product) => {
+    const allColors = product.variants?.flatMap((v) => v.colors) || [];
+
+    const uniqueColors = [
+      ...new Map(allColors.map((c) => [c.name, c])).values(),
+    ];
+
+    const variants = product.variants.map((variant) => ({
+      ...variant.toObject(),
+      colors: variant.colors.map((color) => {
+        const discountInfo = calculateDiscount(
+          color.price,
+          color.discount
+        );
+
+        return {
+          ...color.toObject(),
+          originalPrice: color.price,
+          discount: {
+            ...color.discount,
+            isActive: discountInfo.isActive,
+          },
+          finalPrice: discountInfo.finalPrice,
+          discountAmount: discountInfo.discountAmount,
+        };
+      }),
+    }));
+
+    return {
+      ...product.toObject(),
+      variants,
+      colors: uniqueColors,
+    };
+  });
+
+  res.json(compareProducts);
+});
+
 
 
 // @route   DELETE /api/products/:id
@@ -1110,6 +1170,7 @@ module.exports = {
   getBestSellerProducts,
   getDealsProducts,
   getNewArrivalProducts,
+  compareProducts,
   createProductReview,
   getProductReviews,
   updateProductSpecs,

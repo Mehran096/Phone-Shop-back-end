@@ -9,6 +9,7 @@ const {
   getBestSellerProducts,
   getDealsProducts,
   getNewArrivalProducts,
+  compareProducts,
   deleteProduct,
   createProductReview,
   getProductReviews,
@@ -41,6 +42,7 @@ router.route('/')
 router.get('/bestsellers', getBestSellerProducts);
 router.get('/deals', getDealsProducts);
 router.get('/new-arrivals', getNewArrivalProducts);
+router.get('/compare', compareProducts);
 
 router.route('/slug/:slug').get(getProductBySlug)
 

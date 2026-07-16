@@ -34,7 +34,7 @@ const reviewSchema = mongoose.Schema({
   adminReply: { reply: String, name: String, user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, createdAt: Date },
 }, { timestamps: true });
 
-// V8.7 COLOR = GALLERY ONLY. NO hexCode, NO imageUrl
+// V8.7 COLOR = GALLERY ONLY. NO imageUrl
 const colorSchema = new mongoose.Schema({
   name: { type: String, required: true }, // Black, Purple
   hexCode: { type: String, trim: true }, // Black, Purple
