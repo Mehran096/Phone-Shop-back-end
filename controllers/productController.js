@@ -498,25 +498,26 @@ const compareProducts = asyncHandler(async (req, res) => {
 
   if (!slugs) {
     res.status(400);
-    throw new Error('Product slugs are required');
+    throw new Error("Product slugs are required");
   }
 
-  const slugArray = slugs.split(',');
+  const slugArray = slugs.split(",");
 
   const products = await Product.find({
     slug: { $in: slugArray },
-  }).populate('user', 'name');
+  }).populate("user", "name");
 
   if (!products.length) {
     res.status(404);
-    throw new Error('Products not found');
+    throw new Error("Products not found");
   }
 
   const compareProducts = products.map((product) => {
-    const allColors = product.variants?.flatMap((v) => v.colors) || [];
+    const allColors =
+      product.variants?.flatMap((variant) => variant.colors) || [];
 
     const uniqueColors = [
-      ...new Map(allColors.map((c) => [c.name, c])).values(),
+      ...new Map(allColors.map((color) => [color.name, color])).values(),
     ];
 
     const variants = product.variants.map((variant) => ({
@@ -547,7 +548,14 @@ const compareProducts = asyncHandler(async (req, res) => {
     };
   });
 
-  res.json(compareProducts);
+  // Preserve the same order as requested in the query
+  const orderedProducts = slugArray
+    .map((slug) =>
+      compareProducts.find((product) => product.slug === slug)
+    )
+    .filter(Boolean);
+
+  res.json(orderedProducts);
 });
 
 
