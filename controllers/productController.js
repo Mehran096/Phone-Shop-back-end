@@ -133,32 +133,54 @@ const getProducts = asyncHandler(async (req, res) => {
 
   // 1. Search Filter: V9.51 KEY = variants.storage + variants.colors.name
   const searchFilter = keyword
-    ? {
+  ? {
       $and: keyword
         .trim()
-        .split(' ')
+        .split(" ")
         .filter(Boolean)
-        .map((word) => ({
-          $or: [
-            { name: { $regex: word, $options: 'i' } },
-            { brand: { $regex: word, $options: 'i' } },
-            { category: { $regex: word, $options: 'i' } },
-            { keywords: { $regex: word, $options: 'i' } },
-            { 'variants.storage': { $regex: word, $options: 'i' } }, // V9.51 KEY
-            { 'variants.colors.name': { $regex: word, $options: 'i' } }, // V9.51 KEY
-          ],
-        })),
+        .map((word) => {
+          const escapedWord = word.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&"
+          );
+
+          return {
+            $or: [
+              { name: { $regex: escapedWord, $options: "i" } },
+              { brand: { $regex: escapedWord, $options: "i" } },
+              { category: { $regex: escapedWord, $options: "i" } },
+              { keywords: { $regex: escapedWord, $options: "i" } },
+              { "variants.storage": { $regex: escapedWord, $options: "i" } },
+              { "variants.colors.name": { $regex: escapedWord, $options: "i" } },
+            ],
+          };
+        }),
     }
-    : {};
+  : {};
 
   // 2. Other Filters
-  const brandFilter = brand ? { brand: { $regex: brand, $options: 'i' } } : {};
+  const escapedBrand = brand
+  ? brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  : "";
+
+const brandFilter = brand
+  ? { brand: { $regex: escapedBrand, $options: "i" } }
+  : {};
   const categoryFilter = category ? { category: { $regex: category, $options: 'i' } } : {};
 
   // 3. Storage Filter: V9.51 KEY = Exact match 256GB
-  const storageFilter = storage
-    ? { 'variants.storage': { $regex: `^${storage}$`, $options: 'i' } }
-    : {};
+ const escapedStorage = storage
+  ? storage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  : "";
+
+const storageFilter = storage
+  ? {
+      "variants.storage": {
+        $regex: `^${escapedStorage}$`,
+        $options: "i",
+      },
+    }
+  : {};
 
   // 4. Price Filter: V9.51 KEY = $elemMatch on variants.colors.price
   const priceFilter =
@@ -437,49 +459,80 @@ const getBestSellerProducts = asyncHandler(async (req, res) => {
   res.json(products);
 });
 
-// Deals & Discounts Products
+// @desc Get Deals & Discounts Products
+// @route GET /api/products/deals
+// @access Public
 const getDealsProducts = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const limit = Number(req.query.limit) || 12;
+  const minDiscount = Number(req.query.minDiscount) || 0;
+
+  // 1. Find products with active + not expired discounts
   const products = await Product.find({
     variants: {
       $elemMatch: {
         colors: {
           $elemMatch: {
-            "discount.isActive": true,
+            "discount.value": { $gt: 0 },
+            $or: [
+              { "discount.endDate": { $exists: false } },
+              { "discount.endDate": { $gte: now } }
+            ]
           },
         },
       },
     },
-  }).sort({ updatedAt: -1 });
+  }).sort({ updatedAt: -1 }).limit(limit * 2); // get extra to filter later
 
-  const deals = products.map((product) => {
-    let bestVariant = null;
-    let bestColor = null;
-    let maxDiscount = 0;
+  // 2. Find best discount variant per product
+  const deals = products
+   .map((product) => {
+      let bestVariant = null;
+      let bestColor = null;
+      let maxDiscount = 0;
 
-    product.variants.forEach((variant) => {
-      variant.colors.forEach((color) => {
-        if (
-          color.discount?.isActive &&
-          color.discount.value > maxDiscount
-        ) {
-          maxDiscount = color.discount.value;
-          bestVariant = variant;
-          bestColor = color;
-        }
+      product.variants.forEach((variant) => {
+        variant.colors.forEach((color) => {
+          const discountValid =
+            color.discount &&
+            color.discount.value > 0 &&
+            (!color.discount.endDate || new Date(color.discount.endDate) >= now);
+
+          if (discountValid && color.discount.value > maxDiscount) {
+            maxDiscount = color.discount.value;
+            bestVariant = variant;
+            bestColor = color;
+          }
+        });
       });
-    });
 
-    return {
-      ...product.toObject(),
+      if (maxDiscount === 0) return null; // skip if no valid discount
 
-      // These will be used by the frontend
-      defaultStorage: bestVariant?.storage,
-      defaultColor: bestColor?.name,
-      bestDiscount: maxDiscount,
-    };
+      // 3. Return FULL product so Product.jsx doesn't break + override price/image
+      return {
+       ...product.toObject(),
+        // Override top level fields so card uses discounted price/image
+        image: bestColor?.images?.[0]?.url || bestVariant?.images?.[0]?.url || product.image,
+        price: bestColor?.price,
+        originalPrice: bestColor?.originalPrice || Math.round(bestColor?.price / (1 - maxDiscount/100)),
+        // Frontend friendly fields for badge + direct link
+        defaultStorage: bestVariant?.storage,
+        defaultColor: bestColor?.name,
+        bestDiscount: maxDiscount,
+        discountType: bestColor?.discount?.type || 'percentage',
+        endDate: bestColor?.discount?.endDate,
+      };
+    })
+   .filter(Boolean) // remove nulls
+   .filter((deal) => deal.bestDiscount >= minDiscount) // filter by min %
+   .sort((a, b) => b.bestDiscount - a.bestDiscount) // sort highest discount first
+   .slice(0, limit); // final limit
+
+  res.json({
+    success: true,
+    count: deals.length,
+    deals,
   });
-
-  res.json(deals);
 });
 
 // New Arrival Products
