@@ -486,7 +486,7 @@ const getDealsProducts = asyncHandler(async (req, res) => {
 
   // 2. Find best discount variant per product
   const deals = products
-   .map((product) => {
+  .map((product) => {
       let bestVariant = null;
       let bestColor = null;
       let maxDiscount = 0;
@@ -508,25 +508,34 @@ const getDealsProducts = asyncHandler(async (req, res) => {
 
       if (maxDiscount === 0) return null; // skip if no valid discount
 
-      // 3. Return FULL product so Product.jsx doesn't break + override price/image
+      // 3. Use discountHelper so it matches detail page 100%
+      const { isActive: discountIsActive, discountAmount, finalPrice } = calculateDiscount(
+        bestColor.price,
+        bestColor.discount
+      );
+
+      if (!discountIsActive) return null;
+
+      // 4. Return FULL product so Product.jsx doesn't break
       return {
-       ...product.toObject(),
+      ...product.toObject(),
         // Override top level fields so card uses discounted price/image
         image: bestColor?.images?.[0]?.url || bestVariant?.images?.[0]?.url || product.image,
-        price: bestColor?.price,
-        originalPrice: bestColor?.originalPrice || Math.round(bestColor?.price / (1 - maxDiscount/100)),
-        // Frontend friendly fields for badge + direct link
+        price: finalPrice, // Discounted price
+        originalPrice: bestColor.price, // Original price from DB
+        // Frontend friendly fields for badge + link
         defaultStorage: bestVariant?.storage,
         defaultColor: bestColor?.name,
         bestDiscount: maxDiscount,
         discountType: bestColor?.discount?.type || 'percentage',
         endDate: bestColor?.discount?.endDate,
+        youSave: discountAmount, // Amount saved
       };
     })
-   .filter(Boolean) // remove nulls
-   .filter((deal) => deal.bestDiscount >= minDiscount) // filter by min %
-   .sort((a, b) => b.bestDiscount - a.bestDiscount) // sort highest discount first
-   .slice(0, limit); // final limit
+  .filter(Boolean) // remove nulls
+  .filter((deal) => deal.bestDiscount >= minDiscount) // filter by min %
+  .sort((a, b) => b.bestDiscount - a.bestDiscount) // sort highest discount first
+  .slice(0, limit); // final limit
 
   res.json({
     success: true,
