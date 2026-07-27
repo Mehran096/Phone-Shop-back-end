@@ -211,33 +211,40 @@ const storageFilter = storage
     .skip(pageSize * (page - 1))
     .sort({ createdAt: -1 });
 
-  // 4. Frontend helper: V9.51 KEY = Min price from all Colors for shop card
-  const productsWithMin = products.map(p => {
+  // 4. Frontend helper: FIRST Color + FIRST Price from DB
+const productsWithCalc = products.map(p => {
+  const allColors = p.variants?.flatMap(v => v.colors) || [];
+  const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()];
 
-    const allColors = p.variants?.flatMap(v => v.colors) || []; // V9.51 KEY: Flatten all SKUs
-    const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()]; // Dedup by name
+  // 1. TAKE FIRST COLOR OF FIRST VARIANT - NO DISCOUNT LOGIC
+  const firstVariant = p.variants?.[0];
+  const firstColor = firstVariant?.colors?.[0] || { price: 0, countInStock: 0, discount: {} };
 
-    const minColor = allColors.length > 0
-      ? allColors.reduce((min, c) => c.price < min.price ? c : min, allColors[0]) // V9.51 KEY
-      : { price: 0, countInStock: 0 };
+  // 2. CALCULATE DISCOUNT ONLY IF FIRST COLOR HAS IT
+  const { finalPrice, discountAmount, isActive } = calculateDiscount(firstColor.price, firstColor.discount);
 
-    return {
-      ...p.toObject(),
-      minPrice: minColor.price, // V9.51 KEY: Card shows $999 From
-      minStock: minColor.countInStock, // V9.51 KEY: Optional badge
-      colors: uniqueColors, // V9.51 KEY: All colors for swatches
-    };
-  });
+  const originalPrice = Number(firstColor.price || 0);
+  const discountPercent = isActive? firstColor.discount.value : 0;
+  const price = finalPrice;
+  const youSave = discountAmount;
 
- if (isSuggestions) {
-  return res.json(productsWithMin);
-}
-
-res.json({
-  products: productsWithMin,
-  page,
-  pages: Math.ceil(count / pageSize),
+  return {
+ ...p.toObject(),
+    minPrice: Number(price.toFixed(2)), // discounted price of first color
+    originalPrice: Number(originalPrice.toFixed(2)), // original of first color
+    discountPercent, // discount of first color only
+    youSave: Number(youSave.toFixed(2)),
+    minStock: firstColor.countInStock,
+    colors: uniqueColors,
+    // FOR COMPATIBILITY
+    price: Number(price.toFixed(2)),
+    bestDiscount: discountPercent,
+  }
 });
+
+if (isSuggestions) return res.json(productsWithCalc);
+
+res.json({ products: productsWithCalc, page, pages: Math.ceil(count / pageSize) });
 });
 
 // @desc Fetch single product by slug
@@ -450,13 +457,44 @@ const updateProduct = asyncHandler(async (req, res) => {
   res.json(updatedProduct);
 });
 
-//Best sellers pproduct
+// Best Sellers Products - FIRST Color Logic
 const getBestSellerProducts = asyncHandler(async (req, res) => {
   const products = await Product.find({})
-    .sort({ allSales: -1 })
-    .limit(8);
+  .sort({ allSales: -1 })
+   .limit(8);
 
-  res.json(products);
+  // USE SAME "FIRST COLOR" LOGIC AS LATEST + NEW ARRIVALS
+  const productsWithCalc = products.map(p => {
+    const allColors = p.variants?.flatMap(v => v.colors) || [];
+    const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()];
+
+    // 1. TAKE FIRST COLOR OF FIRST VARIANT
+    const firstVariant = p.variants?.[0];
+    const firstColor = firstVariant?.colors?.[0] || { price: 0, countInStock: 0, discount: {} };
+
+    // 2. CALCULATE DISCOUNT ONLY IF FIRST COLOR HAS IT
+    const { finalPrice, discountAmount, isActive } = calculateDiscount(firstColor.price, firstColor.discount);
+
+    const originalPrice = Number(firstColor.price || 0);
+    const discountPercent = isActive? firstColor.discount.value : 0;
+    const price = finalPrice;
+    const youSave = discountAmount;
+
+    return {
+ ...p.toObject(),
+      minPrice: Number(price.toFixed(2)),
+      originalPrice: Number(originalPrice.toFixed(2)),
+      discountPercent,
+      youSave: Number(youSave.toFixed(2)),
+      minStock: firstColor.countInStock,
+      colors: uniqueColors,
+      // FOR COMPATIBILITY
+      price: Number(price.toFixed(2)),
+      bestDiscount: discountPercent,
+    }
+  });
+
+  res.json(productsWithCalc); // return array
 });
 
 // @desc Get Deals & Discounts Products
@@ -544,13 +582,160 @@ const getDealsProducts = asyncHandler(async (req, res) => {
   });
 });
 
-// New Arrival Products
+// New Arrival Products - FIRST Color Logic
 const getNewArrivalProducts = asyncHandler(async (req, res) => {
   const products = await Product.find({})
-    .sort({ createdAt: -1 }).limit(8);
+   .sort({ createdAt: -1 }).limit(8);
 
-  res.json(products);
+  // USE SAME "FIRST COLOR" LOGIC AS LATEST
+  const productsWithCalc = products.map(p => {
+    const allColors = p.variants?.flatMap(v => v.colors) || [];
+    const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()];
+
+    // 1. TAKE FIRST COLOR OF FIRST VARIANT
+    const firstVariant = p.variants?.[0];
+    const firstColor = firstVariant?.colors?.[0] || { price: 0, countInStock: 0, discount: {} };
+
+    // 2. CALCULATE DISCOUNT ONLY IF FIRST COLOR HAS IT
+    const { finalPrice, discountAmount, isActive } = calculateDiscount(firstColor.price, firstColor.discount);
+
+    const originalPrice = Number(firstColor.price || 0);
+    const discountPercent = isActive? firstColor.discount.value : 0;
+    const price = finalPrice;
+    const youSave = discountAmount;
+
+    return {
+  ...p.toObject(),
+      minPrice: Number(price.toFixed(2)),
+      originalPrice: Number(originalPrice.toFixed(2)),
+      discountPercent,
+      youSave: Number(youSave.toFixed(2)),
+      minStock: firstColor.countInStock,
+      colors: uniqueColors,
+      // FOR COMPATIBILITY
+      price: Number(price.toFixed(2)),
+      bestDiscount: discountPercent,
+    }
+  });
+
+  res.json(productsWithCalc); // return array, not raw products
 });
+
+// @desc Get recommended products
+// @route GET /api/products/:id/recommendations
+// @access Public
+const getRecommendedProducts = asyncHandler(async (req, res) => {
+  const productId = req.params.id
+  const currentProduct = await Product.findById(productId)
+  const now = new Date()
+  
+  if (!currentProduct) {
+    res.status(404)
+    throw new Error('Product not found')
+  }
+
+  const isDiscountActive = (discount) => {
+    if (!discount) return false
+    if (!discount.isActive) return false
+    if (discount.value <= 0) return false
+    if (discount.startDate && new Date(discount.startDate) > now) return false
+    if (discount.endDate && new Date(discount.endDate) < now) return false
+    return true
+  }
+
+  let recommendations = []
+  const limit = 6
+  let recommendationType = 'popular' // default
+
+  // 1. FIRST: Get ALL products from SAME BRAND
+  const sameBrand = await Product.find({
+    _id: { $ne: productId },
+    brand: currentProduct.brand,
+  })
+ .select('name brand category variants slug rating numReviews')
+ .limit(limit)
+ .lean()
+
+  recommendations = [...sameBrand]
+
+  if (recommendations.length > 0) {
+    recommendationType = 'brand'
+    
+    // 1.5: If brand has < 6, fill with MORE FROM SAME BRAND ONLY
+    // Don't go to category yet
+    if (recommendations.length < limit) {
+      const remaining = limit - recommendations.length
+      const brandIds = recommendations.map(p => p._id)
+
+      const moreSameBrand = await Product.find({
+        _id: { $nin: [productId,...brandIds] },
+        brand: currentProduct.brand, // still brand
+      })
+     .select('name brand category variants slug rating numReviews')
+     .limit(remaining)
+     .sort({ rating: -1 })
+     .lean()
+     
+      recommendations = [...recommendations,...moreSameBrand]
+    }
+  }
+
+  // 2. SECOND: If NO brand products found, then use CATEGORY
+  if (recommendations.length === 0) {
+    const sameCategory = await Product.find({
+      _id: { $ne: productId },
+      category: currentProduct.category,
+    })
+   .select('name brand category variants slug rating numReviews')
+   .limit(limit)
+   .sort({ rating: -1 })
+   .lean()
+
+    recommendations = [...sameCategory]
+    if (sameCategory.length > 0) recommendationType = 'category'
+  }
+
+  // 3. THIRD: FINAL FALLBACK - Best sellers
+  if (recommendations.length < limit) {
+    const remaining = limit - recommendations.length
+    const excludeIds = recommendations.map(p => p._id)
+
+    const bestSellers = await Product.find({
+      _id: { $nin: [productId,...excludeIds] },
+    })
+   .select('name brand category variants slug rating numReviews')
+   .limit(remaining)
+   .sort({ numReviews: -1 })
+   .lean()
+
+    recommendations = [...recommendations,...bestSellers]
+    if (recommendations.length === bestSellers.length) recommendationType = 'popular'
+  }
+
+  // CLEAN DISCOUNTS
+  const cleanedRecommendations = recommendations.map(product => {
+    const cleanedVariants = product.variants?.map(variant => {
+      const cleanedColors = variant.colors?.map(color => {
+        if (!isDiscountActive(color.discount)) {
+          return { 
+            ...color, 
+            discount: { ...color.discount, value: 0, isActive: false } 
+          }
+        }
+        return color
+      })
+      return { ...variant, colors: cleanedColors }
+    })
+    return { ...product, variants: cleanedVariants }
+  })
+
+  res.json({
+    recommendations: cleanedRecommendations,
+    type: recommendationType,
+    brand: currentProduct.brand,
+    category: currentProduct.category
+  })
+})
 
 // @desc    Compare phones
 // @route   GET /api/products/compare
@@ -1241,6 +1426,7 @@ module.exports = {
   getDealsProducts,
   getNewArrivalProducts,
   compareProducts,
+  getRecommendedProducts,
   createProductReview,
   getProductReviews,
   updateProductSpecs,
