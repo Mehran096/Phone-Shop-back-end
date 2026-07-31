@@ -737,7 +737,7 @@ const getRecommendedProducts = asyncHandler(async (req, res) => {
   })
 })
 
-// @desc    Compare phones
+// @desc  Compare phones
 // @route   GET /api/products/compare
 // @access  Public
 const compareProducts = asyncHandler(async (req, res) => {

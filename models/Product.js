@@ -86,7 +86,10 @@ const productSchema = mongoose.Schema({
   metaTitle: String,
   metaDescription: String,
   keywords: [{ type: String }],
-  accessories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Accessory' }],
+  accessories: [{ 
+    accessory: { type: mongoose.Schema.Types.ObjectId, ref: 'Accessory' },
+    type: { type: String, enum: ['required', 'recommended'], default: 'recommended' }
+  }],
   //specs: { ram: String, display: String, battery: String, camera: String },
 
   // V8.7 NEW STRUCTURE ONLY. DELETED: price, image, images, colors

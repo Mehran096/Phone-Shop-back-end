@@ -1,33 +1,36 @@
 const mongoose = require('mongoose');
 const slugify = require('slugify');
 
-const accessorySchema = mongoose.Schema({
-  name: { type: String, required: true }, // "Silicone Case - Purple"
+const accessorySchema = new mongoose.Schema({
+  name: { type: String, required: true }, // "Tempered Glass - iPhone 17"
   slug: { type: String, unique: true, lowercase: true },
   type: { 
-    type: String, 
-    required: true, 
-    enum: ['Case', 'Charger', 'Glass', 'Cable', 'AirPods'] 
+    type: String,
+    required: true,
+    enum: ['Case', 'Charger', 'Glass', 'Cable'] // REMOVED AirPods
   },
-  price: { type: Number, required: true }, // $29
-  countInStock: { type: Number, required: true, default: 0 }, // 50
-  images: [{ // V9.59 KEY: V9.47 Schema
-    url: { type: String, required: true },
-    imagePublicId: { type: String },
-  }],
-  description: { type: String },
+  brand: { type: String }, // "Anker", "Apple"
+  compatibleWith: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }], // Key
   
-  // Link it to phones. Ex: Case works with iPhone 17
-  compatibleWith: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }], 
+  price: { type: Number, required: true },
+  discount: { // ADD THIS
+    type: { type: String, enum: ["percentage", "fixed"], default: null },
+    value: { type: Number, default: 0 },
+    startDate: Date, 
+    endDate: Date, 
+    isActive: { type: Boolean, default: false },
+  },
+  countInStock: { type: Number, required: true, default: 0 },
+  sku: { type: String },
+  images: [{ url: { type: String, required: true }, imagePublicId: String }],
+  description: { type: String, default: '' },
+  specs: { type: Object, default: {} }, // "Wattage": "20W"
   
-  brand: { type: String }, // "Apple", "Anker"
-  rating: { type: Number, default: 0 },
-  numReviews: { type: Number, default: 0 },
 }, { timestamps: true });
 
-accessorySchema.pre('save', function () { 
-  if (this.isModified('name') &&!this.slug) {
-    this.slug = this.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+accessorySchema.pre('save', function () {
+  if (this.isModified('name') && !this.slug) {
+    this.slug = slugify(this.name, { lower: true, strict: true }) + '-' + Date.now();
   }
 });
 
