@@ -3,6 +3,7 @@ const router = express.Router()
 const {
   createProduct,
   getProducts,
+  getProductsForDropdown,
   getProductById,
   getProductBySlug,
   updateProduct,
@@ -44,6 +45,7 @@ router.get('/bestsellers', getBestSellerProducts);
 router.get('/deals', getDealsProducts);
 router.get('/new-arrivals', getNewArrivalProducts);
 router.get('/compare', compareProducts);
+router.get('/dropdown', getProductsForDropdown);
 router.get('/:id/recommendations', getRecommendedProducts);
 
 router.route('/slug/:slug').get(getProductBySlug)

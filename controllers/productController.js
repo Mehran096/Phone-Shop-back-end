@@ -7,15 +7,15 @@ const User = require('../models/User')
 const Order = require('../models/orderModel');
 const { cloudinary } = require('../utils/cloudinary')
 
-const extractPublicIdFromUrl = (url) => {
-  try {
-    // Regex grabs everything after /upload/ and before the file extension
-    const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
-    return matches ? matches[1] : null
-  } catch {
-    return null
-  }
-}
+// const extractPublicIdFromUrl = (url) => {
+//   try {
+//     // Regex grabs everything after /upload/ and before the file extension
+//     const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/)
+//     return matches ? matches[1] : null
+//   } catch {
+//     return null
+//   }
+// }
 
 // @desc Create a product
 // @route POST /api/products
@@ -245,6 +245,34 @@ const productsWithCalc = products.map(p => {
 if (isSuggestions) return res.json(productsWithCalc);
 
 res.json({ products: productsWithCalc, page, pages: Math.ceil(count / pageSize) });
+});
+
+// @desc    Get products for dropdown - lightweight/only for compatible-accessories
+// @route   GET /api/products/dropdown
+// @access  Public
+const getProductsForDropdown = asyncHandler(async (req, res) => {
+  const { keyword = '' } = req.query;
+
+  const searchFilter = keyword
+    ? {
+        $or: [
+          { name: { $regex: keyword, $options: 'i' } },
+          { brand: { $regex: keyword, $options: 'i' } },
+        ],
+      }
+    : {};
+
+  const products = await Product.find(searchFilter)
+    .select('_id name brand')
+    .limit(50)
+    .sort({ name: 1 });
+
+  const formatted = products.map(product => ({
+  value: product._id.toString(), // ADD .toString() HERE
+  label: `${product.brand} ${product.name}`.trim()
+}));
+
+  res.json(formatted);
 });
 
 // @desc Fetch single product by slug
@@ -1418,6 +1446,7 @@ const updateProductSpecs = asyncHandler(async (req, res) => {
 module.exports = {
   createProduct,
   getProducts,
+  getProductsForDropdown,
   getProductById,
   getProductBySlug,
   updateProduct,
