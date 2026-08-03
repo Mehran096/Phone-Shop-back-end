@@ -12,6 +12,7 @@ const reviewSchema = mongoose.Schema({
 const accessoryOptionSchema = new mongoose.Schema({
   name: { type: String, required: true }, // "Black", "2 m"
   hexCode: { type: String, trim: true }, // Only for colors: "#000"
+  compatibleModel: { type: [String], default: [] },
   price: { type: Number, required: true, min: 0 }, // Price for this specific option
   discount: {
     type: { type: String, enum: ["percentage", "fixed"], default: null },
@@ -34,14 +35,7 @@ const accessoryVariantSchema = new mongoose.Schema({
   description: { type: String, required: false, default: '' },
   options: { type: [accessoryOptionSchema], default: [] }, // The actual choices go here
 }, { _id: false });
-
-// 3. COMPATIBLE PHONES - Only for cases
-const compatibleSchema = new mongoose.Schema({
-  product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true }, // Link to iPhone 17 Pro
-  countInStock: { type: Number, default: 0 }, // Stock for this phone model
-  imagePublicId: { type: String },
-}, { _id: false });
-
+  
 const accessorySchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
   name: { type: String, required: true }, // "MagSafe Case"
@@ -53,16 +47,16 @@ const accessorySchema = new mongoose.Schema({
   metaTitle: String,
   metaDescription: String,
   keywords: [{ type: String }],
-  // images: [{
-  //   url: { type: String, required: true },
-  //   imagePublicId: { type: String },
-  // }],
-
+  
   // THIS HOLDS ALL SELECTORS
   variants: { type: [accessoryVariantSchema], default: [] },
 
   // THIS HOLDS PHONE COMPATIBILITY
-  compatibleWith: [compatibleSchema],
+  compatibleWith: { 
+  type: [String], 
+  required: true,
+  default: []
+},
 
   rating: { type: Number, required: true, default: 0 },
   numReviews: { type: Number, required: true, default: 0 },

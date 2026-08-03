@@ -11,7 +11,7 @@ const { cloudinary } = require('../utils/cloudinary');
 const getAccessories = asyncHandler(async (req, res) => {
   const pageSize = 12;
   const page = Number(req.query.pageNumber) || 1;
-  const keyword = req.query.keyword 
+  const keyword = req.query.keyword
     ? { name: { $regex: req.query.keyword, $options: 'i' } }
     : {};
   const categoryFilter = req.query.category ? { category: req.query.category } : {};
@@ -60,16 +60,16 @@ const getAccessoryBySlug = asyncHandler(async (req, res) => {
 // @route   POST /api/accessories
 // @access  Private/Admin
 const createAccessory = asyncHandler(async (req, res) => {
-  const { 
-    name, 
-    brand, 
-    category, 
-    description, 
+  const {
+    name,
+    brand,
+    category,
+    description,
     metaTitle,
     metaDescription,
     keywords = [],
     variants = [],
-    compatibleWith = []
+    compatibleWith,
   } = req.body;
 
   // 1. VALIDATION
@@ -80,37 +80,42 @@ const createAccessory = asyncHandler(async (req, res) => {
 
   // 2. CLEAN/MAP VARIANTS
   const cleanVariants = variants
-  .map(v => ({
-    type: v.type || 'Color',
-    value: v.value || '',
-    specs: v.specs || {},
-    description: v.description || '',
-    options: (v.options || [])
-      .filter(opt => opt.name)
-      .map(opt => {
-        const discount = {
-          type: opt.discount?.type || "percentage",
-          value: Number(opt.discount?.value) || 0,
-          startDate: opt.discount?.startDate || null,
-          endDate: opt.discount?.endDate || null,
-        };
-        discount.isActive = 
-          discount.value > 0 &&
-          (!discount.startDate || new Date() >= new Date(discount.startDate)) &&
-          (!discount.endDate || new Date() <= new Date(discount.endDate));
+    .map(v => ({
+      type: v.type || 'Color',
+      value: v.value || '',
+      specs: v.specs || {},
+      description: v.description || '',
+      options: (v.options || [])
+        .filter(opt => opt.name)
+        .map(opt => {
+          const discount = {
+            type: opt.discount?.type || "percentage",
+            value: Number(opt.discount?.value) || 0,
+            startDate: opt.discount?.startDate || null,
+            endDate: opt.discount?.endDate || null,
+          };
+          discount.isActive =
+            discount.value > 0 &&
+            (!discount.startDate || new Date() >= new Date(discount.startDate)) &&
+            (!discount.endDate || new Date() <= new Date(discount.endDate));
 
-        return {
-          name: opt.name,
-          hexCode: opt.hexCode || "",
-          price: Number(opt.price) || 0,
-          discount,
-          countInStock: Number(opt.countInStock) || 0,
-          sku: opt.sku || '',
-          images: opt.images || [],
-        }
-      })
-  }))
-  .filter(v => v.options.length > 0);
+          return {
+            name: opt.name,
+            hexCode: opt.hexCode || "",
+            compatibleModel: Array.isArray(opt.compatibleModel)
+              ? opt.compatibleModel
+              : opt.compatibleModel
+                ? [opt.compatibleModel]
+                : [],
+            price: Number(opt.price) || 0,
+            discount,
+            countInStock: Number(opt.countInStock) || 0,
+            sku: opt.sku || '',
+            images: opt.images || [],
+          }
+        })
+    }))
+    .filter(v => v.options.length > 0);
 
   if (cleanVariants.length === 0) {
     res.status(400);
@@ -143,7 +148,7 @@ const createAccessory = asyncHandler(async (req, res) => {
       metaDescription: autoMetaDescription.slice(0, 155),
       keywords,
       variants: cleanVariants,
-      compatibleWith: cleanCompatible,
+      compatibleWith: compatibleWith,
       allSales: 0,
       numReviews: 0,
       rating: 0,
@@ -227,6 +232,11 @@ const updateAccessory = asyncHandler(async (req, res) => {
               return {
                 name: opt.name,
                 hexCode: opt.hexCode || '',
+                compatibleModel: Array.isArray(opt.compatibleModel)
+                  ? opt.compatibleModel
+                  : opt.compatibleModel
+                    ? [opt.compatibleModel]
+                    : [],
                 price: Number(opt.price) || 0,
                 countInStock: Number(opt.countInStock) || 0,
                 sku: opt.sku || '',
@@ -242,14 +252,9 @@ const updateAccessory = asyncHandler(async (req, res) => {
       }
     }
 
-    // 5. CLEAN COMPATIBLE
+    // 5. CLEAN COMPATIBLE - Now it's just string array
     if (compatibleWith) {
-      const cleanCompatible = compatibleWith.map((c) => ({
-        product: c.product,
-        countInStock: Number(c.countInStock) || 0,
-        imagePublicId: c.imagePublicId || '',
-      }));
-      accessory.compatibleWith = cleanCompatible;
+      accessory.compatibleWith = compatibleWith;
     }
 
     // 6. SEO META
@@ -318,7 +323,7 @@ const deleteAccessory = asyncHandler(async (req, res) => {
     const accessoryId = new mongoose.Types.ObjectId(req.params.id);
     await User.updateMany(
       { wishlist: accessoryId },
-      { $pull: { wishlist: accessoryId }}
+      { $pull: { wishlist: accessoryId } }
     );
     await User.updateMany(
       { 'cart.product': accessoryId },

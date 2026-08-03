@@ -58,7 +58,7 @@ router.post('/reviews', protect, (req, res) => {
 
 // V21.22.7.21 KEY: ACCESSORIES ROUTE - 20 FILES MAX
 router.post('/accessories', protect, admin, (req, res) => {
-  const upload = multer({ storage: createStorage('accessories') }).array('images', 20);
+  const upload = multer({ storage: createStorage('accessories') }).array('images', 200);
 
   upload(req, res, (err) => {
     if (err) return res.status(400).json({ message: err.message });
