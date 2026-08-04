@@ -8,59 +8,62 @@ const reviewSchema = mongoose.Schema({
   comment: { type: String, required: true },
 }, { timestamps: true });
 
-// 1. COLOR/VARIANT OPTION - like "Black", "2m", "20W"
-const accessoryOptionSchema = new mongoose.Schema({
-  name: { type: String, required: true }, // "Black", "2 m"
-  hexCode: { type: String, trim: true }, // Only for colors: "#000"
-  compatibleModel: { type: [String], default: [] },
-  price: { type: Number, required: true, min: 0 }, // Price for this specific option
-  discount: {
-    type: { type: String, enum: ["percentage", "fixed"], default: null },
-    value: { type: Number, default: 0, min: 0 },
-    isActive: { type: Boolean, default: false },
+// 100% MATCH TO PRODUCT.JS DISCOUNT
+const discountSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ["percentage", "fixed"],
+    default: null,
   },
-  countInStock: { type: Number, required: true, min: 0, default: 0 }, // Stock for this option
-  sku: { type: String },
-  images: [{
-    url: { type: String, required: true },
-    imagePublicId: { type: String },
+  value: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  startDate: { type: Date },
+  endDate: { type: Date },
+  isActive: {
+    type: Boolean,
+    default: false,
+  },
+}, { _id: false });
+
+const colorVariantSchema = new mongoose.Schema({
+  sku: { type: String, required: true }, // AUTO: CASE-BLACK-IP17PM
+  color: { type: String, required: true }, // Black
+  colorHex: { type: String, trim: true, default: '#000' },
+  price: { type: Number, required: true, default: 0 },
+  discount: discountSchema,
+  countInStock: { type: Number, required: true, default: 0 },
+  images: [{ 
+    url: { type: String, required: true }, 
+    imagePublicId: { type: String } 
   }],
 }, { _id: false });
 
-// 2. VARIANT GROUP - like "Color" or "Cable Length"
-const accessoryVariantSchema = new mongoose.Schema({
-  type: { type: String, required: true }, // "Color" or "Cable Length"
-  value: { type: String, required: false}, // "Select Color" - just a label
-  specs: { type: Object, default: {} },
-  description: { type: String, required: false, default: '' },
-  options: { type: [accessoryOptionSchema], default: [] }, // The actual choices go here
+const modelVariantSchema = new mongoose.Schema({
+  modelName: { type: String, required: true }, // "iPhone 17 Pro Max"
+  description: { type: String, default: '' },
+  specs: [{ key: { type: String }, value: { type: String } }],
+  colorVariants: [colorVariantSchema]
 }, { _id: false });
-  
+
 const accessorySchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
   name: { type: String, required: true }, // "MagSafe Case"
-  slug: { type: String, required: true, unique: true, lowercase: true, index: true },
   brand: { type: String, required: true },
-  category: { type: String, required: false }, // "Case", "Charger", "Cable"
-  description: { type: String, required: false },
-
-  metaTitle: String,
-  metaDescription: String,
+  category: { type: String, required: true }, // "Case", "Charger", "Cable"
+  slug: { type: String, required: true, unique: true, lowercase: true, index: true },
+  
+  metaTitle: { type: String },
+  metaDescription: { type: String },
   keywords: [{ type: String }],
   
-  // THIS HOLDS ALL SELECTORS
-  variants: { type: [accessoryVariantSchema], default: [] },
-
-  // THIS HOLDS PHONE COMPATIBILITY
-  compatibleWith: { 
-  type: [String], 
-  required: true,
-  default: []
-},
-
+  reviews: [reviewSchema],
+  variants: [modelVariantSchema], // <-- ONLY THIS. Model > Colors. NO compatibleWith
+  
   rating: { type: Number, required: true, default: 0 },
   numReviews: { type: Number, required: true, default: 0 },
-  reviews: [reviewSchema],
 }, { timestamps: true });
 
 // Auto create slug
@@ -72,3 +75,7 @@ accessorySchema.pre('save', function () {
 
 const Accessory = mongoose.model('Accessory', accessorySchema);
 module.exports = Accessory;
+
+
+
+
