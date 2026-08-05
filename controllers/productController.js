@@ -387,6 +387,7 @@ const getProductById = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const updateProduct = asyncHandler(async (req, res) => {
   const {
+    _id, // KEY: get from body not params
     name,
     brand,
     category,
@@ -395,54 +396,57 @@ const updateProduct = asyncHandler(async (req, res) => {
     keywords,
     metaTitle,
     metaDescription,
-    //allSales,
-    imagesToDelete // V38.64 KEY: Get delete queue from frontend
+    imagesToDelete = [] // V38.65 KEY: default empty array
   } = req.body;
 
-  const product = await Product.findById(req.params.id);
+  const product = await Product.findById(_id); // FIX 1
 
   if (!product) {
     res.status(404);
     throw new Error('Product not found');
   }
 
-  // V38.64 KEY 1: DELETE IMAGES FROM CLOUDINARY FIRST
-  if (imagesToDelete?.length > 0) {
-    console.log('V38.64 DELETE REQUEST:', imagesToDelete);
-    const results = await Promise.allSettled(
+  // V38.65 KEY 1: DELETE IMAGES FROM CLOUDINARY FIRST
+  if (imagesToDelete.length > 0) {
+    console.log('V38.65 DELETE REQUEST:', imagesToDelete);
+    await Promise.allSettled(
       imagesToDelete.map(id => cloudinary.uploader.destroy(id))
     );
-    const deleted = results.filter(r => r.status === 'fulfilled').length;
-
   }
 
-  // Validation
   if (!variants || variants.length === 0) {
     res.status(400);
     throw new Error('Please add at least 1 variant');
   }
 
-
   // V9.52 KEY 2: Slug update
-  if (name && name !== product.name) {
+  if (name && name!== product.name) {
     product.slug = slugify(name, {
       lower: true,
       strict: true,
       remove: /[*+~.()'"!:@]/g
     });
   }
-  // V10.13.50 KEY: Strip newFiles before saving to DB
+
+  // V38.65 KEY 2: CLEAN VARIANTS - remove temp fields
   const cleanVariants = variants.map((v) => ({
-    ...v,
+   ...v,
+    specs: v.specs || {},
     colors: v.colors.map((c) => {
-      const { newFiles, ...rest } = c;
+      // remove frontend temp fields
+      const { isNew, id, file,...rest } = c; 
 
       return {
-        ...rest,
+       ...rest,
+        // Ensure imagePublicId is saved
+        images: (c.images || []).map(img => ({
+          url: img.url,
+          imagePublicId: img.imagePublicId || null
+        })),
         discount: (() => {
           const discount =
             typeof c.discount === "object"
-              ? {
+             ? {
                 type: c.discount.type || "percentage",
                 value: Number(c.discount.value) || 0,
                 startDate: c.discount.startDate || null,
@@ -466,22 +470,16 @@ const updateProduct = asyncHandler(async (req, res) => {
     }),
   }));
 
-  // V9.52 KEY 3: Direct assign. NO `specs` root. NO Multer.
   product.name = name;
   product.brand = brand;
   product.category = category;
-  // product.description = description;
-  product.accessories = accessories; // array
-  product.keywords = keywords; // array
+  product.accessories = accessories || [];
+  product.keywords = keywords || [];
   product.metaTitle = metaTitle?.slice(0, 60) || '';
   product.metaDescription = metaDescription?.slice(0, 160) || '';
-  //product.allSales = allSales?? product.allSales;
-  product.variants = cleanVariants; // V38.64 KEY: Save variants with imagePublicId
+  product.variants = cleanVariants;
 
   const updatedProduct = await product.save();
-  // console.log(
-  //   JSON.stringify(updatedProduct.variants, null, 2)
-  // );
   res.json(updatedProduct);
 });
 
