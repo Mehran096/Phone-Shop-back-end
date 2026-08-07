@@ -46,7 +46,8 @@ const variantSchema = new mongoose.Schema({
   // Audio specific
   connectorType: { type: String, default: '' }, // "USB-C to 3.5mm"
   audioBits: { type: String, default: '' }, // "32-Bit DAC"
-
+  
+   originalPrice: { type: Number, required: true, default: 0 },
   // Common commerce
   price: { type: Number, required: true, default: 0 },
   discount: discountSchema,
