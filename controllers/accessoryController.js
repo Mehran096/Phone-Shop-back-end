@@ -9,8 +9,8 @@ const calculateBulkPrice = require('../utils/bulkPriceHelper');
 
 // HELPER: Apply discount + bulk pricing to a variant
 const processVariant = (variant, qty = 1) => {
-   console.log('--- PROCESS VARIANT RUNNING ---'); // ADD THIS
-  console.log('DB originalPrice:', variant.originalPrice, 'DB price:', variant.price);
+   //console.log('--- PROCESS VARIANT RUNNING ---');
+  //console.log('DB originalPrice:', variant.originalPrice, 'DB price:', variant.price);
   // 1. Get original price from DB. Fallback to price for old products
   const originalPrice = Number(variant.originalPrice || variant.price) || 0; 
 
@@ -19,7 +19,7 @@ const processVariant = (variant, qty = 1) => {
 
   // 3. Apply bulk pricing on top of discounted price
   const { pricePerItem, totalPrice, appliedTier } = calculateBulkPrice(discountedPrice, qty, variant.bulkPricing);
- console.log('Calculated originalPrice:', originalPrice, 'Calculated price:', pricePerItem); // ADD THIS
+ //console.log('Calculated originalPrice:', originalPrice, 'Calculated price:', pricePerItem);
   return {
     sku: variant.sku,
     name: variant.name,
