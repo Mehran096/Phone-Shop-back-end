@@ -1,5 +1,37 @@
 const mongoose = require('mongoose');
 
+const orderItemSchema = mongoose.Schema({
+  name: { type: String, required: true },
+  qty: { type: Number, required: true },
+  image: { type: String, required: true },
+  price: { type: Number, required: true },
+  originalPrice: { type: Number },
+  discountAmount: { type: Number, default: 0 },
+  slug: { type: String },
+  
+  // === VARIANT FIELDS FOR BOTH PRODUCT + ACCESSORY ===
+  variantType: { type: String, default: 'product' }, // 'product' or 'accessory'
+  variantName: { type: String }, // 'storage' or 'glass' or 'cable'
+  variantSubName: { type: String }, // '256GB' or 'Clear 9H' or '3 Meter Cable'
+  color: { type: String, required: true },
+  storage: { type: String }, // only for products
+  model: { type: String }, // 'iPhone 17 Pro Max' or 'Universal'
+  sku: { type: String },
+
+  // === REFERENCE: EITHER PRODUCT OR ACCESSORY ===
+  product: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+  },
+  accessory: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Accessory',
+  },
+},
+{ _id: false } // we don't need separate _id for each item
+);
+
+
 const orderSchema = mongoose.Schema(
   {
     user: {
@@ -7,25 +39,7 @@ const orderSchema = mongoose.Schema(
       required: true,
       ref: 'User',
     },
-    orderItems: [
-      {
-        name: { type: String, required: true },
-        qty: { type: Number, required: true },
-        image: { type: String, required: true },
-        price: { type: Number, required: true },
-        originalPrice: { type: Number },
-        discountAmount: { type: Number, default: 0 },
-        slug: { type: String },
-        color: { type: String, required: true },
-        storage: { type: String },
-        //hexCode: { type: String},
-        product: {
-          type: mongoose.Schema.Types.ObjectId,
-          required: true,
-          ref: 'Product',
-        },
-      },
-    ],
+    orderItems: [orderItemSchema], // <-- using new schema
     shippingAddress: { 
       phone: { type: String, required: true },
       address: { type: String, required: true },
@@ -33,17 +47,16 @@ const orderSchema = mongoose.Schema(
       postalCode: { type: String, required: true },
       country: { type: String, required: true },
     },
-    //shippingMethod: { type: String }, // 'TCS', 'Leopards', 'Standard' 
     paymentMethod: {
       type: String,
       required: true,
     },
     paymentResult: {
-    id: { type: String },
-    status: { type: String },
-    update_time: { type: String },
-    email_address: { type: String },
-  },
+      id: { type: String },
+      status: { type: String },
+      update_time: { type: String },
+      email_address: { type: String },
+    },
     itemsPrice: { type: Number, required: true, default: 0.0 },
     taxPrice: { type: Number, required: true, default: 0.0 },
     shippingPrice: { type: Number, required: true, default: 0.0 },
@@ -54,10 +67,10 @@ const orderSchema = mongoose.Schema(
     isRefunded: { type: Boolean, default: false },
     refundAmount: { type: Number, default: 0 },
     refundedAt: { type: Date },
-    isShipped: { type: Boolean, default: false },    // NEW
-    shippedAt: { type: Date },                       // NEW
-    trackingNumber: { type: String },                // NEW
-    carrier: { type: String },                       // 'TCS', 'Leopards', 'Standard' 
+    isShipped: { type: Boolean, default: false },
+    shippedAt: { type: Date },
+    trackingNumber: { type: String },
+    carrier: { type: String },
     isDelivered: { type: Boolean, required: true, default: false },
     deliveredAt: { type: Date },
   },

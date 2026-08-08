@@ -3,6 +3,7 @@ const mongoose = require('mongoose')
 const Order = require('../models/orderModel.js');
 const User = require('../models/User');
 const Product = require('../models/Product.js')
+const Accessory = require('../models/Accessory.js')
 const sendEmail = require('../utils/sendEmail.js')
 const { calcPrices } = require('../utils/calcPrices')
 const { protect, admin } = require('../middleware/auth.js'); // <-- Add this
@@ -16,15 +17,11 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
 
 
-// @desc Create new order - COD ONLY
+// @desc Create new order - COD + Stripe
 // @route POST /api/orders
 // @access Private
 router.post('/', protect, asyncHandler(async (req, res) => {
-  const {
-    orderItems,
-    shippingAddress,
-    paymentMethod,
-  } = req.body
+  const { orderItems, shippingAddress, paymentMethod } = req.body
 
   if (!orderItems || orderItems.length === 0) {
     res.status(400)
@@ -33,7 +30,6 @@ router.post('/', protect, asyncHandler(async (req, res) => {
 
   // 1. COD country check - BYPASS IN DEMO MODE
   const isDemo = process.env.DEMO_MODE === 'true'
-
   if (paymentMethod === 'COD' && !isDemo) {
     const allowedCountries = ['Pakistan']
     const country = shippingAddress.country?.trim()
@@ -43,13 +39,14 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     }
   }
 
+  // V20.0 FIX: Allow both product and accessory
   const validOrderItems = orderItems.filter((x) => x.product != null)
   if (validOrderItems.length === 0) {
     res.status(400)
-    throw new Error('All products in cart were deleted')
+    throw new Error('All items in cart were deleted')
   }
 
-  // V19.0 COD ONLY BLOCK
+  // V20.0 FIX: Map items and set product OR accessory ref + variant fields
   const dbOrderItems = validOrderItems.map((itemFromClient) => ({
     name: itemFromClient.name,
     qty: itemFromClient.qty,
@@ -60,11 +57,18 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     color: itemFromClient.color,
     storage: itemFromClient.storage,
     slug: itemFromClient.slug,
-    product: itemFromClient.product,
+
+    // NEW: Smart Link fields
+    variantType: itemFromClient.variantType || 'product', // 'product' or 'accessory'
+    variantName: itemFromClient.variantName,
+    variantSubName: itemFromClient.variantSubName,
+    model: itemFromClient.model,
+    sku: itemFromClient.sku,
+
+    // REFERENCE LOGIC: save to correct field
+    product: itemFromClient.variantType === 'accessory' ? undefined : itemFromClient.product,
+    accessory: itemFromClient.variantType === 'accessory' ? itemFromClient.product : undefined,
   }))
-
-
-
 
   // 4. Calculate everything server-side
   const { itemsPrice, taxPrice, shippingPrice, totalPrice, currency } =
@@ -74,7 +78,7 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     orderItems: dbOrderItems,
     user: req.user._id,
     shippingAddress,
-    paymentMethod, // <-- Use variable, not hard-coded
+    paymentMethod,
     itemsPrice,
     taxPrice,
     shippingPrice,
@@ -85,19 +89,8 @@ router.post('/', protect, asyncHandler(async (req, res) => {
 
   const createdOrder = await order.save()
 
-  if (paymentMethod === 'COD') {
-    await User.findByIdAndUpdate(req.user._id, { cartItems: [] })
-  }
-
-  // === V32.66 DEBUG START ===
-  // const testImageUrl = `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${createdOrder.orderItems[0].image}`
-  // console.log('====================================')
-  // console.log('EMAIL IMAGE URL TEST:', testImageUrl)
-  // console.log('FRONTEND_URL ENV:', process.env.FRONTEND_URL)
-  // console.log('item.image from DB:', createdOrder.orderItems[0].image)
-  // console.log('====================================')
-  // === V32.66 DEBUG END ===
-
+  // Clear cart for both COD and Stripe
+  await User.findByIdAndUpdate(req.user._id, { cartItems: [] })
 
   // 5. Send "Order Received" email
   try {
@@ -108,39 +101,31 @@ router.post('/', protect, asyncHandler(async (req, res) => {
       html: `
       <!DOCTYPE html>
       <html>
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      </head>
       <body style="margin:0; padding:0; background-color:#f4f4f4; font-family:Arial, sans-serif">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f4">
           <tr>
             <td align="center" style="padding:20px 0">
-              <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px; background-color:#ffffff; border-radius:8px; overflow:hidden">
+              <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px; background-color:#ffffff; border-radius:8px">
                 <tr>
                   <td style="padding:24px">
                     <h2 style="margin:0 0 12px; font-size:22px; color:#111">Thanks for your order, ${user.name}</h2>
-                    <p style="margin:0 0 20px; font-size:14px; color:#555">We've received your COD order and will process it shortly.</p>
+                    <p style="margin:0 0 20px; font-size:14px; color:#555">We've received your ${paymentMethod} order and will process it shortly.</p>
 
                     <h3 style="margin:0 0 12px; font-size:16px; color:#111">Order ID: ${createdOrder._id.toString().slice(-6)}</h3>
 
                     <h3 style="margin:20px 0 12px; font-size:16px; color:#111">Items:</h3>
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                       ${createdOrder.orderItems.map(item => `
                         <tr style="border-bottom:1px solid #eee">
                           <td style="padding:12px 0; vertical-align:top; width:70px">
-                            <img 
-                              src="${item.image.startsWith('http') ? item.image : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}`}" 
-                              alt="${item.name}" 
-                              width="60" 
-                              height="60"
-                              style="display:block; border-radius:6px; border:1px solid #f3f3f3" 
-                            />
+                            <img src="${item.image.startsWith('http') ? item.image : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}`}" width="60" height="60" style="display:block; border-radius:6px; border:1px solid #f3f3f3" />
                           </td>
                           <td style="padding:12px 0 12px 12px; vertical-align:top">
                             <div style="font-weight:600; font-size:14px; color:#111; line-height:1.4">${item.name}</div>
                             <div style="font-size:13px; color:#666; margin-top:4px">
-                              Color: ${item.color} | Storage: ${item.storage}
+                              ${item.model ? `Model: ${item.model} | ` : ''}
+                              ${item.variantSubName ? `${item.variantSubName} | ` : ''}
+                              Color: ${item.color} ${item.storage ? `| Storage: ${item.storage}` : ''}
                             </div>
                             <div style="font-size:13px; margin-top:4px; color:#111">
                               ${item.qty} x ${createdOrder.currency} ${item.price}
@@ -151,45 +136,11 @@ router.post('/', protect, asyncHandler(async (req, res) => {
                     </table>
 
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px">
-                      <tr>
-                        <td style="padding:8px 0;font-size:14px;">
-                          <strong>Items:</strong>
-                        </td>
-                        <td align="right">
-                          ${createdOrder.currency} ${createdOrder.itemsPrice.toFixed(2)}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <td style="padding:8px 0;font-size:14px;">
-                          <strong>Shipping:</strong>
-                        </td>
-                        <td align="right">
-                          ${createdOrder.currency} ${createdOrder.shippingPrice.toFixed(2)}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <td style="padding:8px 0;font-size:14px;">
-                          <strong>Tax:</strong>
-                        </td>
-                        <td align="right">
-                          ${createdOrder.currency} ${createdOrder.taxPrice.toFixed(2)}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <td style="padding:8px 0;font-size:16px;font-weight:bold;">
-                          Total:
-                        </td>
-                        <td align="right" style="font-size:16px;font-weight:bold;">
-                          ${createdOrder.currency} ${createdOrder.totalPrice.toFixed(2)}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding:8px 0; font-size:14px"><strong>Payment:</strong></td>
-                        <td align="right" style="padding:8px 0; font-size:14px">${createdOrder.paymentMethod}</td>
-                      </tr>
+                      <tr><td style="padding:8px 0;font-size:14px;"><strong>Items:</strong></td><td align="right">${createdOrder.currency} ${createdOrder.itemsPrice.toFixed(2)}</td></tr>
+                      <tr><td style="padding:8px 0;font-size:14px;"><strong>Shipping:</strong></td><td align="right">${createdOrder.currency} ${createdOrder.shippingPrice.toFixed(2)}</td></tr>
+                      <tr><td style="padding:8px 0;font-size:14px;"><strong>Tax:</strong></td><td align="right">${createdOrder.currency} ${createdOrder.taxPrice.toFixed(2)}</td></tr>
+                      <tr><td style="padding:8px 0;font-size:16px;font-weight:bold;">Total:</td><td align="right" style="font-size:16px;font-weight:bold;">${createdOrder.currency} ${createdOrder.totalPrice.toFixed(2)}</td></tr>
+                      <tr><td style="padding:8px 0; font-size:14px"><strong>Payment:</strong></td><td align="right" style="padding:8px 0; font-size:14px">${createdOrder.paymentMethod}</td></tr>
                     </table>
 
                     <h3 style="margin:20px 0 12px; font-size:16px; color:#111">Shipping To:</h3>
@@ -199,22 +150,6 @@ router.post('/', protect, asyncHandler(async (req, res) => {
                       ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
                       ${shippingAddress.country}
                     </p>
-
-                    <!-- Button -->
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px">
-                      <tr>
-                        <td align="center" bgcolor="#2563eb" style="border-radius:6px">
-                          <a 
-                            href="${process.env.FRONTEND_URL || 'https://phone-store.asia'}/order/${createdOrder._id}" 
-                            target="_blank"
-                            style="display:inline-block; padding:12px 24px; font-size:14px; color:#ffffff; text-decoration:none; font-weight:600"
-                          >
-                            View Order
-                          </a>
-                        </td>
-                      </tr>
-                    </table>
-
                   </td>
                 </tr>
               </table>
