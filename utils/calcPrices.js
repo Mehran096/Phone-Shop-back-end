@@ -1,5 +1,5 @@
 const addDecimals = (num) => {
-  return (Math.round(num * 100) / 100).toFixed(2)
+  return Number((Math.round(num * 100) / 100).toFixed(2)) // <-- Returns Number, not String
 }
 
 // Country-specific shipping rates - adjust these
@@ -8,7 +8,7 @@ const SHIPPING_RATES = {
   CA: { standard: 15, freeThreshold: 100 }, // CAD
   GB: { standard: 8, freeThreshold: 60 }, // GBP
   PK: { standard: 2, freeThreshold: 50 }, // USD equivalent
-  DEFAULT: { standard: 20, freeThreshold: 100 } // USD for other countries
+  DEFAULT: { standard: 10, freeThreshold: 100 } // USD for other countries
 }
 
 // ADD paymentMethod as 3rd param
@@ -21,27 +21,22 @@ const calcPrices = (orderItems, shippingAddress, paymentMethod) => {
   const rates = SHIPPING_RATES[countryCode] || SHIPPING_RATES.DEFAULT
 
   // Free shipping if over threshold
-  const shippingPrice = Number(itemsPrice) >= rates.freeThreshold
-   ? 0
-    : rates.standard
+  //const shippingPrice = itemsPrice >= rates.freeThreshold? 0 : rates.standard
+
+  // FREE SHIPPING FOR BOTH COD AND STRIPE / commment this shippingPrice if you do not want to shipping 0 and comment out the above line if you want shippingPrice for both payment methods
+  const shippingPrice = 0
 
   // FIX: Tax only for COD, 0 for Stripe
-  const taxPrice = addDecimals(
-    paymentMethod === 'COD'? Number((0.05 * itemsPrice).toFixed(2)) : 0
-  )
+  const taxPrice = paymentMethod === 'COD'? addDecimals(0.05 * itemsPrice) : 0
 
-  const totalPrice = (
-    Number(itemsPrice) +
-    Number(shippingPrice) +
-    Number(taxPrice)
-  ).toFixed(2)
+  const totalPrice = addDecimals(itemsPrice + shippingPrice + taxPrice)
 
   return {
-    itemsPrice,
-    shippingPrice,
-    taxPrice,
-    totalPrice,
+    itemsPrice, // Number
+    shippingPrice, // Number
+    taxPrice, // Number
+    totalPrice, // Number
   }
-} 
+}
 
 module.exports = { addDecimals, calcPrices }

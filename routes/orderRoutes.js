@@ -17,7 +17,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
 
 
-// @desc Create new order - COD + Stripe
+// @desc Create new order - COD
 // @route POST /api/orders
 // @access Private
 router.post('/', protect, asyncHandler(async (req, res) => {
@@ -70,9 +70,11 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     accessory: itemFromClient.variantType === 'accessory' ? itemFromClient.product : undefined,
   }))
 
-  // 4. Calculate everything server-side
-  const { itemsPrice, taxPrice, shippingPrice, totalPrice, currency } =
-    calcPrices(dbOrderItems, shippingAddress, paymentMethod)
+  // 4. Calculate everything server-side - UPDATED
+  const { itemsPrice, taxPrice, shippingPrice, totalPrice } =
+    calcPrices(dbOrderItems, shippingAddress, paymentMethod) // <-- now uses new version
+
+  const currency = 'usd' // <-- Set manually, add to DB
 
   const order = new Order({
     orderItems: dbOrderItems,
@@ -128,7 +130,7 @@ router.post('/', protect, asyncHandler(async (req, res) => {
                               Color: ${item.color} ${item.storage ? `| Storage: ${item.storage}` : ''}
                             </div>
                             <div style="font-size:13px; margin-top:4px; color:#111">
-                              ${item.qty} x ${createdOrder.currency} ${item.price}
+                              ${item.qty} x ${createdOrder.currency} ${Number(item.price).toFixed(2)}
                             </div>
                           </td>
                         </tr>
@@ -176,14 +178,27 @@ router.get('/myorders', protect, async (req, res) => {
   const orders = await Order.find({ user: req.user._id })
     .populate('user', 'name email')
     .populate({
-      path: 'orderItems.product',
-      select: 'name image' // Don't populate deleted products
+      path: 'orderItems.product', // populate products
+      select: 'name image slug' // Don't populate deleted products
     })
+    .populate({
+      path: 'orderItems.accessory', // populate accessories too
+      select: 'name image slug'
+    })
+    .sort({ createdAt: -1 }) // newest first
 
-  // Filter out null products from old orders
+  // Don't filter anymore. Show both products and accessories
   const safeOrders = orders.map(order => ({
     ...order.toObject(),
-    orderItems: order.orderItems.filter(item => item.product !== null)
+    orderItems: order.orderItems.map(item => {
+      const populatedData = item.product || item.accessory || {}
+      return {
+        ...item,
+        name: populatedData.name || item.name, // fallback to saved name
+        image: populatedData.image || item.image,
+        price: populatedData.price || item.price,
+      }
+    })
   }))
 
   res.json(safeOrders)
@@ -196,16 +211,47 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id)
     .populate('user', 'name email')
     .populate({
-      path: 'orderItems.product',
-      select: 'name image price colors'
+      path: 'orderItems.product', // populate products
+      select: 'name image price colors slug'
+    })
+    .populate({
+      path: 'orderItems.accessory', // populate accessories too
+      select: 'name image price slug'
     })
 
   if (order) {
-    // Filter null products if product was deleted after order was placed
+    // FIX: Merge populated data + Force all numbers for old orders
     const safeOrder = {
       ...order.toObject(),
-      orderItems: order.orderItems.filter(item => item.product !== null)
+      orderItems: order.orderItems.map(item => {
+        const populatedData = item.product || item.accessory || {}
+        
+        // Priority: 1. Saved DB value 2. Populated value 3. Fallback
+        const price = Number(item.price) || Number(populatedData.price) || 0
+        const qty = Number(item.qty) || 1
+        const originalPrice = Number(item.originalPrice) || price
+        const discountAmount = Number(item.discountAmount) || 0
+
+        return {
+          ...item.toObject(),
+          name: populatedData.name || item.name, // fallback to saved name
+          image: populatedData.image || item.image,
+          slug: populatedData.slug || item.slug,
+          
+          // FORCE NUMBERS
+          price,
+          qty,
+          originalPrice,
+          discountAmount,
+        }
+      }),
+      // FORCE NUMBERS ON ORDER TOTALS TOO
+      itemsPrice: Number(order.itemsPrice) || 0,
+      taxPrice: Number(order.taxPrice) || 0,
+      shippingPrice: Number(order.shippingPrice) || 0,
+      totalPrice: Number(order.totalPrice) || 0,
     }
+    
     res.json(safeOrder)
   } else {
     res.status(404)
@@ -281,7 +327,7 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
 // }))
 
 // @desc    Update order to shipped - Admin adds tracking
-// @route   PUT /api/orders/:id/deliver
+// @route   PUT /api/orders/:id/markasShipped
 // @access  Private/Admin
 router.put('/:id/markasShipped', protect, admin, asyncHandler(async (req, res) => {
   const { trackingNumber, carrier } = req.body
@@ -329,7 +375,7 @@ router.put('/:id/markasShipped', protect, admin, asyncHandler(async (req, res) =
         `<p>${item.name} x ${item.qty} - ${order.currency} ${(item.qty * item.price).toFixed(2)}</p>`
       ).join('')}
           
-          <p style="margin-top:20px;"><strong>Total: ${order.currency} ${order.totalPrice}</strong></p>
+          <p style="margin-top:20px;"><strong>Total: ${order.currency} ${order.totalPrice.toFixed(2)}</strong></p>
           
           <h3>Shipping To:</h3>
           <p>
@@ -377,24 +423,30 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
 
   order.isDelivered = true
   order.deliveredAt = Date.now()
-  // Mark COD as paid on delivery
+
+   // Mark COD as paid on delivery + Update Sales
   if (order.paymentMethod === 'COD' && !order.isPaid) {
     order.isPaid = true
     order.paidAt = Date.now()
 
-    // NEW: INCREASE allSales FOR EACH PRODUCT IN ORDER
+    // NEW: INCREASE allSales FOR PRODUCTS AND ACCESSORIES
     for (const item of order.orderItems) {
-      await Product.findByIdAndUpdate(item.product, {
-        $inc: { allSales: item.qty } // add quantity to allSales
-      })
+      if (item.product) { // It's a product
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: { allSales: item.qty }
+        })
+      }
+      if (item.accessory) { // It's an accessory
+        await Accessory.findByIdAndUpdate(item.accessory, {
+          $inc: { allSales: item.qty }
+        })
+      }
     }
-  }
-
-
+  } 
 
   const updatedOrder = await order.save()
 
-  try {
+   try {
     await sendEmail({
       email: order.user.email,
       subject: `Order #${order._id.toString().slice(-6)} Has Been Delivered`,
@@ -413,7 +465,7 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
         `<p>${item.name} x ${item.qty} - ${order.currency} ${(item.qty * item.price).toFixed(2)}</p>`
       ).join('')}
           
-          <p style="margin-top:20px;"><strong>Total: ${order.currency} ${order.totalPrice}</strong></p>
+          <p style="margin-top:20px;"><strong>Total: ${order.currency} ${order.totalPrice.toFixed(2)}</strong></p>
           
           <h3>Delivered To:</h3>
           <p>
@@ -478,7 +530,7 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
 }))
 
 
-// @desc    Get all orders + pagination + search
+// @desc    Get all orders
 // @route   GET /api/orders
 // @access  Private/Admin
 router.get('/', protect, admin, asyncHandler(async (req, res) => {
@@ -491,20 +543,18 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
   if (keyword) {
     // Check if keyword is valid ObjectId for _id search
     const isValidObjectId = mongoose.Types.ObjectId.isValid(keyword)
-
+    
     // Find users matching the keyword first
     const users = await User.find({
       name: { $regex: keyword, $options: 'i' }
     }).select('_id')
-
+    
     const userIds = users.map(user => user._id)
 
     query = {
       $or: [
-        // Search by user if name matches
-        { user: { $in: userIds } },
-        // Search by _id only if it's a valid ObjectId
-        ...(isValidObjectId ? [{ _id: keyword }] : [])
+        { user: { $in: userIds } }, // Search by user if name matches
+        ...(isValidObjectId ? [{ _id: keyword }] : []) // Search by _id only if it's a valid ObjectId
       ]
     }
   }
@@ -513,42 +563,128 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
 
   const orders = await Order.find(query)
     .populate('user', 'id name email')
+    .populate({
+      path: 'orderItems.product', 
+      select: 'name image'
+    })
+    .populate({
+      path: 'orderItems.accessory', 
+      select: 'name image'
+    })
     .limit(pageSize)
     .skip(pageSize * (page - 1))
     .sort({ createdAt: -1 })
 
-  res.json({ orders, page, pages: Math.ceil(count / pageSize) })
+  // Merge populated data so frontend gets name/image even if product was deleted
+  const safeOrders = orders.map(order => ({
+    ...order.toObject(),
+    orderItems: order.orderItems.map(item => {
+      const populatedData = item.product || item.accessory || {}
+      return {
+        ...item,
+        name: populatedData.name || item.name,
+        image: populatedData.image || item.image,
+        price: populatedData.price || item.price,
+      }
+    })
+  }))
+
+  res.json({ orders: safeOrders, page, pages: Math.ceil(count / pageSize) })
 }))
 
-// DELETE order -- admin only
-router.delete('/:id', protect, admin, async (req, res) => {
+// @desc    DELETE last 200 orders - admin only
+// @route   DELETE /api/orders/bulk-delete
+// @access  Private/Admin
+// router.delete('/bulk-delete', protect, admin, asyncHandler(async (req, res) => {
+//   // Block demo admin
+//   const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+//   if (isDemoAdmin) {
+//     res.status(403)
+//     throw new Error('Demo accounts have read-only access. Contact developer for full admin demo.')
+//   }
+
+//   // 1. Get ALL orders - remove .limit(200) if you want to delete remaining
+// const ordersToDelete = await Order.find({})
+//   .sort({ createdAt: -1 })
+
+// if (ordersToDelete.length === 0) {
+//   res.status(404)
+//   throw new Error('No orders found')
+// }
+
+// // 2. Revert allSales SAFELY - never goes below 0
+// for (const order of ordersToDelete) {
+//   for (const item of order.orderItems) {
+//     if (item.accessory) {
+//       await Accessory.updateOne(
+//         { _id: item.accessory },
+//         [{ $set: { allSales: { $max: [0, { $subtract: ["$allSales", item.qty] }] } }}]
+//       )
+//     }
+//     if (item.product) {
+//       await Product.updateOne(
+//         { _id: item.product },
+//         [{ $set: { allSales: { $max: [0, { $subtract: ["$allSales", item.qty] }] } }}]
+//       )
+//     }
+//   }
+// }
+
+// // 3. Delete the orders
+// const ids = ordersToDelete.map(o => o._id)
+// const result = await Order.deleteMany({ _id: { $in: ids } })
+
+// res.json({ message: `Successfully deleted ${result.deletedCount} orders and sales reverted` })
+// }))
+
+// @desc    DELETE order
+// @route   DELETE /api/orders/:id
+// @access  Private/Admin
+router.delete('/:id', protect, admin, asyncHandler(async (req, res) => {
   // Block demo admin from destructive actions
   const isDemoAdmin = req.user.email === 'demo@phonestore.com'
   if (isDemoAdmin) {
-    return res.status(403).json({
-      message: 'Demo accounts have read-only access. Contact developer for full admin demo.'
-    })
+    res.status(403)
+    throw new Error('Demo accounts have read-only access. Contact developer for full admin demo.')
   }
+
   const order = await Order.findById(req.params.id)
 
   if (order) {
+    // === KEY FIX: DECREMENT allSales SAFELY BEFORE DELETING ===
+    for(const item of order.orderItems){
+      if(item.accessory){
+        await Accessory.updateOne(
+          { _id: item.accessory },
+          { $inc: { allSales: -item.qty } }
+        )
+      }
+      if(item.product){
+        await Product.updateOne(
+          { _id: item.product },
+          { $inc: { allSales: -item.qty } }
+        )
+      }
+    }
+
+    // Safety: reset any negatives to 0 after decrement
+    await Accessory.updateMany({ allSales: { $lt: 0 } }, { $set: { allSales: 0 } })
+    await Product.updateMany({ allSales: { $lt: 0 } }, { $set: { allSales: 0 } })
+
     await order.deleteOne()
-    res.json({ message: 'Order removed' })
+    res.json({ message: 'Order removed and sales reverted' })
   } else {
-    res.status(404).json({ message: 'Order not found' })
+    res.status(404)
+    throw new Error('Order not found')
   }
+}))
 
-  //   if (order && order.isDelivered) {
-  //   await order.deleteOne()
-  //   res.json({ message: 'Delivered order removed' })
-  // } else {
-  //   res.status(400).json({ message: 'Only delivered orders can be deleted' })
-  // }
-})
 
-// @desc    Create Stripe checkout session
-// @route   POST /api/orders/create-checkout-session
-// @access  Private
+
+
+// @desc Create Stripe checkout session
+// @route POST /api/orders/create-checkout-session
+// @access Private
 router.post('/create-checkout-session', protect, asyncHandler(async (req, res) => {
   const { orderItems, shippingAddress } = req.body
 
@@ -557,157 +693,166 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     throw new Error('No order items')
   }
 
-  // 1. SECURITY: Get products from DB + use DB prices only
-  const itemsFromDB = await Product.find({
-    _id: { $in: orderItems.map(x => x.product) },
-  })
+  // V20.0 FIX: SECURITY: Get products AND accessories from DB + use DB prices only
+  const productIds = orderItems.filter(i => i.variantType!== 'accessory').map(x => x.product)
+  const accessoryIds = orderItems.filter(i => i.variantType === 'accessory').map(x => x.product)
 
-  const dbProductIds = itemsFromDB.map(p => p._id.toString())
-  const missingProducts = orderItems.filter(
-    item => !dbProductIds.includes(item.product)
-  )
+  const itemsFromDB = await Product.find({ _id: { $in: productIds } })
+  const accessoriesFromDB = await Accessory.find({ _id: { $in: accessoryIds } })
 
-  if (missingProducts.length > 0) {
-    console.log('Missing product IDs:', missingProducts.map(i => i.product))
+  const allDbItems = [...itemsFromDB,...accessoriesFromDB]
+  const dbItemIds = allDbItems.map(p => p._id.toString())
+
+  const missingItems = orderItems.filter(item =>!dbItemIds.includes(item.product))
+  if (missingItems.length > 0) {
+    console.log('Missing item IDs:', missingItems.map(i => i.product))
     res.status(404)
-    throw new Error('Product not found')
+    throw new Error('Product/Accessory not found')
   }
 
-
-  const productMap = new Map(itemsFromDB.map(p => [p._id.toString(), p]));
+  const itemMap = new Map(allDbItems.map(p => [p._id.toString(), p]));
 
   const dbOrderItems = orderItems.map((itemFromClient) => {
-    const matchingItemFromDB = productMap.get(itemFromClient.product);
-
-    // V24.1 KEY: Read from variants[0].colors
-    const variantDoc = matchingItemFromDB.variants?.find(
-      v => v.storage === (itemFromClient.storage || itemFromClient.variant)
-    );
-    if (!variantDoc) {
+    const matchingItemFromDB = itemMap.get(itemFromClient.product);
+    if (!matchingItemFromDB) {
       res.status(400);
-      throw new Error(`Variant "${itemFromClient.variant}" not available`);
+      throw new Error(`Item not found`);
     }
 
-    const colorVariant = variantDoc.colors?.find(
-      (c) => c.name === itemFromClient.color
-    );
-    if (!colorVariant) {
-      res.status(400);
-      throw new Error(`Color "${itemFromClient.color}" not available for ${matchingItemFromDB.name}`);
+    const isAccessory = itemFromClient.variantType === 'accessory';
+
+    let image = itemFromClient.image;
+    let price = Number(itemFromClient.price);
+    if (!isAccessory) {
+      const variantDoc = matchingItemFromDB.variants?.find(
+        v => v.storage === (itemFromClient.storage || itemFromClient.variant)
+      );
+      if (!variantDoc) {
+        res.status(400);
+        throw new Error(`Variant "${itemFromClient.storage}" not available`);
+      }
+      const colorVariant = variantDoc.colors?.find(c => c.name === itemFromClient.color);
+      if (!colorVariant) {
+        res.status(400);
+        throw new Error(`Color "${itemFromClient.color}" not available`);
+      }
+      image = colorVariant.images?.[0]?.url || image;
     }
 
     return {
       name: matchingItemFromDB.name,
       qty: itemFromClient.qty,
-      image: colorVariant.images?.[0]?.url || '', // V24.1: First image
-      price: Number(itemFromClient.price), // V24.1: from nested color
+      image: image,
+      price: price,
       originalPrice: Number(itemFromClient.originalPrice),
       discountAmount: Number(itemFromClient.discountAmount || 0),
-      product: itemFromClient.product,
       color: itemFromClient.color,
       storage: itemFromClient.storage,
       slug: matchingItemFromDB.slug,
+      variantType: itemFromClient.variantType || 'product',
+      variantName: itemFromClient.variantName,
+      variantSubName: itemFromClient.variantSubName,
+      model: itemFromClient.model,
+      sku: itemFromClient.sku,
+      product: isAccessory? undefined : itemFromClient.product,
+      accessory: isAccessory? itemFromClient.product : undefined,
     };
   });
 
-  // 2. Calculate prices - we still save shipping/tax to DB for records
+  // 2. Calculate prices - UPDATED
   const { itemsPrice, shippingPrice, taxPrice, totalPrice } = calcPrices(
     dbOrderItems,
-    shippingAddress.country
+    shippingAddress,  
+    'Stripe'
   )
 
-  // 3. Set currency dynamically for Stripe
+  const currency = 'usd'
 
-  //const currency = shippingAddress.country === 'PK' ? 'pkr' : 'usd'
-  const currency = 'usd' // Always USD
-
-  // 4. Create order in DB - keep shipping/tax for your records
+  // 3. Create order in DB
   const order = await Order.create({
     user: req.user._id,
     orderItems: dbOrderItems,
     shippingAddress,
     paymentMethod: 'Stripe',
-    itemsPrice,
-    taxPrice, // Saved to DB but not charged on Stripe
-    shippingPrice, // Saved to DB but not charged on Stripe
-    totalPrice,
+    itemsPrice, taxPrice, shippingPrice, totalPrice,
     currency: currency.toUpperCase(),
     isPaid: false,
   })
 
-  // 5. Send "Order Received" email
+  // 4. Send "Order Received" email
   try {
     const user = await User.findById(req.user._id)
+    
+    const itemsHtml = dbOrderItems.map(item => {
+      const imgSrc = item.image?.startsWith('http') 
+       ? item.image 
+        : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image || ''}`
+      
+      return `
+      <div style="display:flex;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px">
+        <img src="${imgSrc}" width="60" style="border-radius:6px;margin-right:12px"/>
+        <div style="flex:1">
+          <div style="font-weight:600">${item.name}</div>
+          <div style="font-size:13px;color:#666">
+            ${item.model? `Model: ${item.model} | ` : ''}
+            ${item.variantSubName? `${item.variantSubName} | ` : ''}
+            Color: ${item.color || 'N/A'} ${item.storage? `| Storage: ${item.storage}` : ''}
+          </div>
+          <div style="font-size:13px">${item.qty} x ${order.currency} ${item.price.toFixed(2)}</div>
+        </div>
+      </div>
+      `
+    }).join('')
+
     await sendEmail({
       email: user.email,
       subject: `Order #${order._id.toString().slice(-6)} Received - Complete Payment`,
       html: `
-  <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
-    <h2>Thanks for your order, ${user.name}</h2>
-    <p>We've received your order. Complete payment to confirm it.</p>
-
-    <h3>Order ID: ${order._id.toString().slice(-6)}</h3>
-    
-    <h3>Items:</h3>  <!-- V21.6 KEY: ADD THIS TABLE -->
-    ${order.orderItems.map(item => `
-      <div style="display:flex;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px">
-        <img src="${item.image.startsWith('http') ? item.image : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image}`}" width="60" style="border-radius:6px;margin-right:12px"/>
-        <div style="flex:1">
-          <div style="font-weight:600">${item.name}</div>
-          <div style="font-size:13px;color:#666">Color: ${item.color} | Storage: ${item.storage}</div>
-          <div style="font-size:13px">${item.qty} x ${order.currency} ${item.price}</div>
-        </div>
-      </div>
-    `).join('')}
-    
-    <p><strong>Items Total:</strong> ${order.currency} ${itemsPrice}</p>
-    <p><strong>Shipping:</strong> Free</p>
-    <p><strong>Tax:</strong> Not Included</p>
-    <p><strong>Amount to Pay:</strong> ${order.currency} ${itemsPrice}</p>
-
-    <p>You'll be redirected to Stripe to complete payment. Once paid, you'll get a confirmation email.</p>
-
-    <h3>Shipping To:</h3>
-    <p>
-      <strong>Phone:</strong> ${shippingAddress.phone}<br/>
-      ${shippingAddress.address}<br/>
-      ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
-      ${shippingAddress.country}
-    </p>
-  </div>
-`
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
+        <h2>Thanks for your order, ${user.name}</h2>
+        <p>We've received your order. Complete payment to confirm it.</p>
+        <h3>Order ID: ${order._id.toString().slice(-6)}</h3>
+        <h3>Items:</h3>
+        ${itemsHtml}
+        <p><strong>Items Total:</strong> ${order.currency} ${itemsPrice.toFixed(2)}</p>
+        <p><strong>Shipping:</strong> ${order.currency} ${shippingPrice.toFixed(2)}</p>
+        <p><strong>Tax:</strong> ${order.currency} ${taxPrice.toFixed(2)}</p>
+        <p><strong>Amount to Pay:</strong> ${order.currency} ${totalPrice.toFixed(2)}</p>
+        <h3>Shipping To:</h3>
+        <p>
+          <strong>Phone:</strong> ${shippingAddress.phone}<br/>
+          ${shippingAddress.address}<br/>
+          ${shippingAddress.city}, ${shippingAddress.postalCode}<br/>
+          ${shippingAddress.country}
+        </p>
+      </div>`
     })
     console.log('Order created email sent to:', user.email)
   } catch (error) {
     console.log('Email failed but order created:', error.message)
   }
 
-  // 6. Create Stripe session - ONLY products, no shipping/tax
+  // 5. Create Stripe session
   const line_items = dbOrderItems.map(item => ({
     price_data: {
-      currency: currency, // 'usd' or 'pkr'
+      currency: currency,
       product_data: {
-        name: `${item.name} (${item.color}, ${item.storage})`,
+        name: `${item.name} ${item.model? `for ${item.model}` : ''} (${item.color} ${item.variantSubName || item.storage || ''})`,
         images: [item.image],
       },
-      unit_amount: Math.round(item.price * 100), // Only product price
+      unit_amount: Math.round(item.price * 100),
     },
     quantity: item.qty,
   }))
 
-  // REMOVED: shipping and tax line items
-
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
-    line_items, // Only products now
+    line_items,
     mode: 'payment',
     success_url: `${process.env.FRONTEND_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${process.env.FRONTEND_URL}/cart`,
     customer_email: req.user.email,
     metadata: { orderId: order._id.toString() },
-    payment_intent_data: {
-      metadata: { orderId: order._id.toString() }
-    }
   })
 
   res.json({ url: session.url })
@@ -790,31 +935,36 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
     const session = await stripe.checkout.sessions.retrieve(req.params.sessionId)
 
     if (session.payment_status === 'paid') {
-      // FIX 1: Add .populate to get user email/name
+      // 1. Get order + populate user
       const order = await Order.findById(session.metadata.orderId).populate('user', 'name email')
 
-      // FIX 2: Changed to !order
       if (!order) {
         return res.status(404).json({ message: 'Order not found' })
       }
 
-      // NEW: INCREASE allSales FOR EACH PRODUCT WHEN PAYMENT SUCCESS
-      //console.log('UPDATING allSales NOW')
+
+       // 2. NEW: INCREASE allSales FOR PRODUCTS AND ACCESSORIES
       for (const item of order.orderItems) {
-        //console.log('Product:', item.product, 'Qty:', item.qty)
-        await Product.findByIdAndUpdate(item.product, {
-          $inc: { allSales: item.qty }
-        })
+        if (item.product) { // It's a product
+          await Product.findByIdAndUpdate(item.product, {
+            $inc: { allSales: item.qty }
+          })
+        }
+        if (item.accessory) { // It's an accessory
+          await Accessory.findByIdAndUpdate(item.accessory, {
+            $inc: { allSales: item.qty }
+          })
+        }
       }
 
-
-      // Prevent double updates
-
+      // 3. Prevent double updates
       if (order.isPaid) {
         return res.json(order)
       }
 
-      // Get email from Stripe - v12+ uses customer_details.email
+     
+
+      // 4. Get email from Stripe
       const customerEmail = session.customer_details?.email || session.customer_email
 
       order.isPaid = true
@@ -825,18 +975,26 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
         update_time: new Date().toISOString(),
         email_address: customerEmail,
       }
-
  
       const updatedOrder = await order.save()
 
-      // FIX 3: SEND "PAYMENT SUCCESSFUL" EMAIL
+      // 5. SEND "PAYMENT SUCCESSFUL" EMAIL - FIXED PAYLOAD
       await sendEmail({
-        to: order.user.email,
-        subject: `Payment Successful - Order ${order._id} | PhoneStore`,
-        text: `Hi ${order.user.name},\n\nYour payment was successful!\n\nOrder ID: ${order._id}\nTotal Paid: $${order.totalPrice}\n\nWe'll ship your items soon. You can track your order here: ${process.env.FRONTEND_URL}/order/${order._id}\n\nThanks for shopping with PhoneStore!`,
+        email: order.user.email, // <-- was 'to'
+        subject: `Payment Successful - Order #${order._id.toString().slice(-6)} | PhoneStore`,
+        html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
+          <h2>Payment Received, ${order.user.name} 🎉</h2>
+          <p>Your payment was successful. We're preparing your order now.</p>
+          <h3>Order ID: ${order._id.toString().slice(-6)}</h3>
+          <p><strong>Total Paid:</strong> ${order.currency} ${order.totalPrice.toFixed(2)}</p>
+          <p><strong>Payment Method:</strong> Stripe</p>
+          <p>Track your order here: <a href="${process.env.FRONTEND_URL}/order/${order._id}">${process.env.FRONTEND_URL}/order/${order._id}</a></p>
+          <p>Thanks for shopping with PhoneStore!</p>
+        </div>`
       })
 
-      // Clear user's cart in MongoDB after successful payment
+      // 6. Clear user's cart in MongoDB after successful payment
       await User.findByIdAndUpdate(order.user._id, { cartItems: [] })
 
       res.json(updatedOrder)
