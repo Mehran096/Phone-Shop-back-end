@@ -75,6 +75,47 @@ app.post('/api/orders/webhook', express.raw({type: 'application/json'}), async (
 
       console.log('paymentResult Order updated:', order.paymentResult)
 
+      // === NEW: INCREMENT allSales FOR PRODUCTS AND ACCESSORIES ===
+      for(const item of order.orderItems){
+        if(item.product){
+          await Product.updateOne(
+            { _id: item.product },
+            { $inc: { allSales: item.qty } }
+          )
+        }
+        if(item.accessory){
+          await Accessory.updateOne(
+            { _id: item.accessory },
+            { $inc: { allSales: item.qty } }
+          )
+        }
+      }
+      console.log('Sales incremented for order:', order._id)
+
+      // === NEW: TRACK FREQUENTLY BOUGHT TOGETHER ===
+      const productsInOrder = order.orderItems.filter(i => i.product).map(i => i.product)
+      const accessoriesInOrder = order.orderItems.filter(i => i.accessory).map(i => i.accessory)
+
+      // For each product, increment count for each accessory bought with it
+      for (const productId of productsInOrder) {
+        for (const accessoryId of accessoriesInOrder) {
+          // Try to increment existing
+          const updated = await Product.updateOne(
+            { _id: productId, "frequentlyBoughtWith.accessory": accessoryId },
+            { $inc: { "frequentlyBoughtWith.$.count": 1 } }
+          )
+
+          // If not found, push new
+          if (updated.modifiedCount === 0) {
+            await Product.updateOne(
+              { _id: productId },
+              { $push: { frequentlyBoughtWith: { accessory: accessoryId, count: 1 } } }
+            )
+          }
+        }
+      }
+      console.log('Frequently bought together data updated')
+
       // Clear user's cart
       await User.findByIdAndUpdate(order.user._id, { cartItems: [] })
 
@@ -162,6 +203,45 @@ app.post('/api/orders/webhook', express.raw({type: 'application/json'}), async (
         console.log('Refund webhook duplicate blocked for:', order._id)
         return res.json({ received: true })
       }
+
+// === NEW: DECREMENT allSales FOR PRODUCTS AND ACCESSORIES ===
+      for(const item of order.orderItems){
+        if(item.product){
+          await Product.updateOne(
+            { _id: item.product },
+            { $inc: { allSales: -item.qty } }
+          )
+        }
+        if(item.accessory){
+          await Accessory.updateOne(
+            { _id: item.accessory },
+            { $inc: { allSales: -item.qty } }
+          )
+        }
+      }
+
+      //Safety: reset any negatives to 0
+      await Accessory.updateMany({ allSales: { $lt: 0 } }, { $set: { allSales: 0 } })
+      await Product.updateMany({ allSales: { $lt: 0 } }, { $set: { allSales: 0 } })
+
+      // === NEW: DECREMENT FREQUENTLY BOUGHT TOGETHER ===
+      const productsInOrder = order.orderItems.filter(i => i.product).map(i => i.product)
+      const accessoriesInOrder = order.orderItems.filter(i => i.accessory).map(i => i.accessory)
+
+      for (const productId of productsInOrder) {
+        for (const accessoryId of accessoriesInOrder) {
+          await Product.updateOne(
+            { _id: productId, "frequentlyBoughtWith.accessory": accessoryId },
+            { $inc: { "frequentlyBoughtWith.$.count": -1 } }
+          )
+        }
+      }
+
+      // Safety: remove any with count <= 0
+      await Product.updateMany(
+        {},
+        { $pull: { frequentlyBoughtWith: { count: { $lte: 0 } } } }
+      )
       
       order.isRefunded = true
       order.refundedAt = Date.now()

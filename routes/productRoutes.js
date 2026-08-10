@@ -12,6 +12,7 @@ const {
   getNewArrivalProducts,
   compareProducts,
   getRecommendedProducts,
+  getFrequentlyBoughtTogether,
   deleteProduct,
   createProductReview,
   getProductReviews,
@@ -47,6 +48,7 @@ router.get('/new-arrivals', getNewArrivalProducts);
 router.get('/compare', compareProducts);
 router.get('/dropdown', getProductsForDropdown);
 router.get('/:id/recommendations', getRecommendedProducts);
+router.get('/:id/frequently-bought', getFrequentlyBoughtTogether);
 
 router.route('/slug/:slug').get(getProductBySlug)
 

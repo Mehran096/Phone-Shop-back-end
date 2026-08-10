@@ -763,6 +763,74 @@ const getRecommendedProducts = asyncHandler(async (req, res) => {
   })
 })
 
+// @desc Get frequently bought together accessories for a product
+// @route GET /api/products/:id/frequently-bought
+// @access Public
+const getFrequentlyBoughtTogether = asyncHandler(async (req, res) => {
+  const productId = req.params.id
+  const model = req.query.model || 'Universal' // "Apple iPhone 16 Pro Max"
+  const color = req.query.color || 'White' // <- ADD THIS. Default to White
+
+  const product = await Product.findById(productId)
+  .populate({
+      path: 'frequentlyBoughtWith.accessory',
+      select: 'name slug brand accessoryType models discount',
+      model: 'Accessory'
+    })
+  .lean()
+
+  if (!product) return res.status(404).json({ message: 'Product not found' })
+  if (!product.frequentlyBoughtWith?.length) return res.json([])
+
+  const topAccessories = product.frequentlyBoughtWith
+  .filter(item => item.accessory)
+  .sort((a, b) => b.count - a.count)
+  .slice(0, 8)
+  .map(item => {
+      const acc = item.accessory
+      
+      // 1. KEY FIX: Match by models.modelName
+      const modelMatch = acc.models?.find(m => 
+        m.modelName?.toLowerCase() === model.toLowerCase() ||
+        model.toLowerCase().includes(m.modelName?.toLowerCase()) ||
+        m.modelName?.toLowerCase() === 'universal'
+      ) || acc.models?.[0]
+
+      // 2. KEY FIX: Match by color inside that model
+      const variant = modelMatch?.variants?.find(v => 
+        v.color?.toLowerCase() === color.toLowerCase() ||
+        v.name?.toLowerCase().includes(color.toLowerCase())
+      ) 
+      // 2nd fallback: prefer White if color not found
+      || modelMatch?.variants?.find(v => v.color?.toLowerCase().includes('white')) 
+      // 3rd fallback: first variant
+      || modelMatch?.variants?.[0]
+
+      const price = Number(variant?.price || variant?.originalPrice || 0)
+      const originalPrice = Number(variant?.originalPrice || variant?.price || 0)
+      
+      return {
+        _id: acc._id,
+        name: acc.name,
+        slug: acc.slug,
+        brand: acc.brand,
+        accessoryType: acc.accessoryType,
+        color: variant?.color || 'Default', // <- NOW CORRECT COLOR
+        variantSubName: variant?.name,
+        model: modelMatch?.modelName || 'Universal',
+        price: price,
+        originalPrice: originalPrice,
+        image: variant?.images?.[0]?.url || '/placeholder.png', // <- NOW CORRECT IMAGE
+        countInStock: variant?.countInStock || 0,
+        sku: variant?.sku || '',
+        discount: variant?.discount || acc.discount || { isActive: false, value: 0 },
+        boughtTogetherCount: item.count
+      }
+    })
+
+  res.json(topAccessories)
+})
+
 // @desc  Compare phones
 // @route   GET /api/products/compare
 // @access  Public
@@ -1452,6 +1520,7 @@ module.exports = {
   getBestSellerProducts,
   getDealsProducts,
   getNewArrivalProducts,
+  getFrequentlyBoughtTogether,
   compareProducts,
   getRecommendedProducts,
   createProductReview,

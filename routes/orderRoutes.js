@@ -944,18 +944,18 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
 
 
        // 2. NEW: INCREASE allSales FOR PRODUCTS AND ACCESSORIES
-      for (const item of order.orderItems) {
-        if (item.product) { // It's a product
-          await Product.findByIdAndUpdate(item.product, {
-            $inc: { allSales: item.qty }
-          })
-        }
-        if (item.accessory) { // It's an accessory
-          await Accessory.findByIdAndUpdate(item.accessory, {
-            $inc: { allSales: item.qty }
-          })
-        }
-      }
+      // for (const item of order.orderItems) {
+      //   if (item.product) { // It's a product
+      //     await Product.findByIdAndUpdate(item.product, {
+      //       $inc: { allSales: item.qty }
+      //     })
+      //   }
+      //   if (item.accessory) { // It's an accessory
+      //     await Accessory.findByIdAndUpdate(item.accessory, {
+      //       $inc: { allSales: item.qty }
+      //     })
+      //   }
+      // }
 
       // 3. Prevent double updates
       if (order.isPaid) {

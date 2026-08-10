@@ -8,28 +8,26 @@ const orderItemSchema = mongoose.Schema({
   originalPrice: { type: Number },
   discountAmount: { type: Number, default: 0 },
   slug: { type: String },
-  
+
   // === VARIANT FIELDS FOR BOTH PRODUCT + ACCESSORY ===
   variantType: { type: String, default: 'product' }, // 'product' or 'accessory'
   variantName: { type: String }, // 'storage' or 'glass' or 'cable'
   variantSubName: { type: String }, // '256GB' or 'Clear 9H' or '3 Meter Cable'
-  color: { type: String, required: true },
-  storage: { type: String }, // only for products
-  model: { type: String }, // 'iPhone 17 Pro Max' or 'Universal'
+  color: { type: String, default: '' }, // <- FIX: removed required
+  storage: { type: String, default: '' }, // <- FIX: removed required
+  model: { type: String, default: '' }, // 'iPhone 17 Pro Max' or 'Universal'
   sku: { type: String },
 
   // === REFERENCE: EITHER PRODUCT OR ACCESSORY ===
-  product: {
+  product: { 
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Product',
+    ref: "Product",
   },
   accessory: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Accessory',
+    ref: "Accessory",
   },
-},
-{ _id: false } // we don't need separate _id for each item
-);
+}, { _id: false })
 
 
 const orderSchema = mongoose.Schema(

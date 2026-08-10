@@ -99,6 +99,13 @@ const productSchema = mongoose.Schema({
     default: 0,
     min: 0,
   },
+
+  // NEW FIELD
+  frequentlyBoughtWith: [{
+    accessory: { type: mongoose.Schema.Types.ObjectId, ref: 'Accessory' },
+    count: { type: Number, default: 0 }
+  }],
+
   rating: { type: Number, required: true, default: 0 },
   numReviews: { type: Number, required: true, default: 0 },
   reviews: [reviewSchema],
