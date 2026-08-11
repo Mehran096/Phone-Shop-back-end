@@ -9,22 +9,24 @@ const calculateBulkPrice = require('../utils/bulkPriceHelper');
 
 // HELPER: Apply discount + bulk pricing to a variant
 const processVariant = (variant, qty = 1) => {
-   //console.log('--- PROCESS VARIANT RUNNING ---');
-  //console.log('DB originalPrice:', variant.originalPrice, 'DB price:', variant.price);
-  // 1. Get original price from DB. Fallback to price for old products
-  const originalPrice = Number(variant.originalPrice || variant.price) || 0; 
+  // 1. Get prices from DB. Admin controls these
+  const originalPrice = Number(variant.originalPrice) || 0; 
+  const dbPrice = Number(variant.price) || Number(variant.originalPrice) || 0;
 
-  // 2. Apply normal discount to ORIGINAL price
-  const { finalPrice: discountedPrice } = calculateDiscount(originalPrice, variant.discount);
+  // 2. Apply normal discount to DB PRICE, not original
+  const { finalPrice: discountedPrice } = calculateDiscount(dbPrice, variant.discount);
 
   // 3. Apply bulk pricing on top of discounted price
   const { pricePerItem, totalPrice, appliedTier } = calculateBulkPrice(discountedPrice, qty, variant.bulkPricing);
- //console.log('Calculated originalPrice:', originalPrice, 'Calculated price:', pricePerItem);
+
+  // FIX: If no bulk pricing, pricePerItem will be 0. Use discountedPrice instead
+  const finalDisplayPrice = pricePerItem > 0 ? pricePerItem : discountedPrice;
+
   return {
     sku: variant.sku,
     name: variant.name,
     color: variant.color || '',
-    colorHex: variant.colorHex || '#000',
+    colorHex: variant.colorHex || '#0000',
     wattage: variant.wattage || '',
     cableType: variant.cableType || '',
     cableLength: variant.cableLength || '',
@@ -33,13 +35,14 @@ const processVariant = (variant, qty = 1) => {
     glassType: variant.glassType || '',
     connectorType: variant.connectorType || '',
     audioBits: variant.audioBits || '',
-    
-    originalPrice: originalPrice, // before any discount
-    price: pricePerItem, // final price per item after discount + bulk
+
+    originalPrice: originalPrice > dbPrice ? originalPrice : null, // Only show strikethrough if there IS a discount
+    price: dbPrice, // <- ADMIN SET PRICE. THIS WON'T CHANGE NOW
+    displayPrice: finalDisplayPrice, // <- FINAL PRICE CUSTOMER SEES AFTER DISCOUNT+BULK
+    totalPrice: totalPrice || finalDisplayPrice * qty,
     discount: variant.discount,
     bulkPricing: variant.bulkPricing || [],
     appliedBulkTier: appliedTier,
-    
     countInStock: Number(variant.countInStock) || 0,
     images: (variant.images || []).filter(img => img.url),
   };
@@ -126,10 +129,15 @@ const getAccessoryById = asyncHandler(async (req, res) => {
   const accessory = await Accessory.findById(req.params.id);
   if (accessory) {
     const obj = accessory.toObject();
-    obj.models = obj.models.map(model => ({
+    
+    // FIX: Add || [] to prevent crash
+    obj.variants = (obj.variants || []).map(v => processVariant(v, 1));
+    
+    obj.models = (obj.models || []).map(model => ({
       ...model,
-      variants: model.variants.map(v => processVariant(v, 1))
+      variants: (model.variants || []).map(v => processVariant(v, 1))
     }));
+    
     res.json(obj);
   } else {
     res.status(404);
@@ -144,10 +152,15 @@ const getAccessoryBySlug = asyncHandler(async (req, res) => {
   const accessory = await Accessory.findOne({ slug: req.params.slug });
   if (accessory) {
     const obj = accessory.toObject();
-    obj.models = obj.models.map(model => ({
+    
+    // FIX: Add || [] to prevent crash
+    obj.variants = (obj.variants || []).map(v => processVariant(v, 1));
+    
+    obj.models = (obj.models || []).map(model => ({
       ...model,
-      variants: model.variants.map(v => processVariant(v, 1))
+      variants: (model.variants || []).map(v => processVariant(v, 1))
     }));
+    
     res.json(obj);
   } else {
     res.status(404);

@@ -225,7 +225,7 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
       ...order.toObject(),
       orderItems: order.orderItems.map(item => {
         const populatedData = item.product || item.accessory || {}
-        
+
         // Priority: 1. Saved DB value 2. Populated value 3. Fallback
         const price = Number(item.price) || Number(populatedData.price) || 0
         const qty = Number(item.qty) || 1
@@ -237,7 +237,7 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
           name: populatedData.name || item.name, // fallback to saved name
           image: populatedData.image || item.image,
           slug: populatedData.slug || item.slug,
-          
+
           // FORCE NUMBERS
           price,
           qty,
@@ -251,7 +251,7 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
       shippingPrice: Number(order.shippingPrice) || 0,
       totalPrice: Number(order.totalPrice) || 0,
     }
-    
+
     res.json(safeOrder)
   } else {
     res.status(404)
@@ -424,7 +424,7 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
   order.isDelivered = true
   order.deliveredAt = Date.now()
 
-   // Mark COD as paid on delivery + Update Sales
+  // Mark COD as paid on delivery + Update Sales
   if (order.paymentMethod === 'COD' && !order.isPaid) {
     order.isPaid = true
     order.paidAt = Date.now()
@@ -442,11 +442,31 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
         })
       }
     }
-  } 
+  }
+
+  // === NEW: INCREMENT FREQUENTLY BOUGHT TOGETHER ===
+  const productsInOrder = order.orderItems.filter(i => i.product).map(i => i.product)
+  const accessoriesInOrder = order.orderItems.filter(i => i.accessory).map(i => i.accessory)
+
+  for (const productId of productsInOrder) {
+    for (const accessoryId of accessoriesInOrder) {
+      await Product.findOneAndUpdate(
+        { _id: productId, "frequentlyBoughtWith.accessory": accessoryId },
+        { $inc: { "frequentlyBoughtWith.$.count": 1 } }
+      )
+
+      // If FBT pair doesn't exist yet, push it
+      await Product.findOneAndUpdate(
+        { _id: productId, "frequentlyBoughtWith.accessory": { $ne: accessoryId } },
+        { $push: { frequentlyBoughtWith: { accessory: accessoryId, count: 1 } } }
+      )
+    }
+  }
+  // === END FBT ===
 
   const updatedOrder = await order.save()
 
-   try {
+  try {
     await sendEmail({
       email: order.user.email,
       subject: `Order #${order._id.toString().slice(-6)} Has Been Delivered`,
@@ -543,12 +563,12 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
   if (keyword) {
     // Check if keyword is valid ObjectId for _id search
     const isValidObjectId = mongoose.Types.ObjectId.isValid(keyword)
-    
+
     // Find users matching the keyword first
     const users = await User.find({
       name: { $regex: keyword, $options: 'i' }
     }).select('_id')
-    
+
     const userIds = users.map(user => user._id)
 
     query = {
@@ -564,11 +584,11 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
   const orders = await Order.find(query)
     .populate('user', 'id name email')
     .populate({
-      path: 'orderItems.product', 
+      path: 'orderItems.product',
       select: 'name image'
     })
     .populate({
-      path: 'orderItems.accessory', 
+      path: 'orderItems.accessory',
       select: 'name image'
     })
     .limit(pageSize)
@@ -591,6 +611,8 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
 
   res.json({ orders: safeOrders, page, pages: Math.ceil(count / pageSize) })
 }))
+
+
 
 // @desc    DELETE last 200 orders - admin only
 // @route   DELETE /api/orders/bulk-delete
@@ -637,6 +659,103 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
 // res.json({ message: `Successfully deleted ${result.deletedCount} orders and sales reverted` })
 // }))
 
+// @desc    Cancel/Refund order - Admin
+// @route   PUT /api/orders/:id/cancel
+// @access  Private/Admin
+router.put('/:id/cancel', protect, admin, asyncHandler(async (req, res) => {
+  const { cancelReason, cancelCode } = req.body // <-- ADD THIS
+
+  const order = await Order.findById(req.params.id).populate('user', 'name email')
+
+  if (!order) {
+    res.status(404)
+    throw new Error('Order not found')
+  }
+
+  if (order.isCancelled) {
+    res.status(400)
+    throw new Error('Order already cancelled')
+  }
+
+  if (order.isDelivered) {
+    res.status(400)
+    throw new Error('Cannot cancel delivered order. Use return/refund instead')
+  }
+
+  order.isCancelled = true
+  order.cancelledAt = Date.now()
+  order.cancelReason = cancelReason || 'Cancelled by admin' // <-- ADD THIS
+  order.cancelCode = cancelCode || 'ADMIN_CANCEL_COD'       // <-- ADD THIS
+
+  // KEY: DECREASE allSales FOR PRODUCTS AND ACCESSORIES
+  // This covers COD, Stripe, JazzCash - any payment method
+  for (const item of order.orderItems) {
+    if (item.product) { // It's a product
+      await Product.findByIdAndUpdate(item.product, {
+        $inc: { allSales: -item.qty }
+      })
+    }
+    if (item.accessory) { // It's an accessory including FBT
+      await Accessory.findByIdAndUpdate(item.accessory, {
+        $inc: { allSales: -item.qty }
+      })
+    }
+  }
+
+  // === NEW: DECREMENT FREQUENTLY BOUGHT TOGETHER ===
+  const productsInOrder = order.orderItems.filter(i => i.product).map(i => i.product)
+  const accessoriesInOrder = order.orderItems.filter(i => i.accessory).map(i => i.accessory)
+
+  for (const productId of productsInOrder) {
+    for (const accessoryId of accessoriesInOrder) {
+      await Product.updateOne(
+        { _id: productId, "frequentlyBoughtWith.accessory": accessoryId },
+        { $inc: { "frequentlyBoughtWith.$.count": -1 } }
+      )
+    }
+  }
+
+  // Safety: remove any FBT with count <= 0
+  await Product.updateMany(
+    {},
+    { $pull: { frequentlyBoughtWith: { count: { $lte: 0 } } } }
+  )
+  // === END FBT ===
+
+  // Safety: reset any negatives to 0
+  await Accessory.updateMany({ allSales: { $lt: 0 } }, { $set: { allSales: 0 } })
+  await Product.updateMany({ allSales: { $lt: 0 } }, { $set: { allSales: 0 } })
+
+  // If it was paid, mark as refunded
+  if (order.isPaid) {
+    order.isRefunded = true
+    order.refundedAt = Date.now()
+  }
+
+  const updatedOrder = await order.save()
+
+  // Send cancel email with reason
+  try {
+    await sendEmail({
+      email: order.user.email,
+      subject: `Order #${order._id.toString().slice(-6)} Cancelled`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
+          <h2>Order Cancelled, ${order.user.name}</h2>
+          <p>Your order #${order._id.toString().slice(-6)} has been cancelled.</p>
+          <p><strong>Reason:</strong> ${order.cancelReason}</p>
+          ${order.isPaid ? `<p>Refund will be processed in 3-5 business days.</p>` : `<p>No payment was made for COD order.</p>`}
+          <p><strong>Total:</strong> ${order.currency} ${order.totalPrice.toFixed(2)}</p>
+        </div>
+      `,
+    })
+  } catch (error) {
+    console.log('Cancel email failed:', error.message)
+  }
+
+  res.json({ message: 'Order cancelled and sales reverted', order: updatedOrder })
+}))
+
 // @desc    DELETE order
 // @route   DELETE /api/orders/:id
 // @access  Private/Admin
@@ -652,14 +771,14 @@ router.delete('/:id', protect, admin, asyncHandler(async (req, res) => {
 
   if (order) {
     // === KEY FIX: DECREMENT allSales SAFELY BEFORE DELETING ===
-    for(const item of order.orderItems){
-      if(item.accessory){
+    for (const item of order.orderItems) {
+      if (item.accessory) {
         await Accessory.updateOne(
           { _id: item.accessory },
           { $inc: { allSales: -item.qty } }
         )
       }
-      if(item.product){
+      if (item.product) {
         await Product.updateOne(
           { _id: item.product },
           { $inc: { allSales: -item.qty } }
@@ -694,16 +813,16 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
   }
 
   // V20.0 FIX: SECURITY: Get products AND accessories from DB + use DB prices only
-  const productIds = orderItems.filter(i => i.variantType!== 'accessory').map(x => x.product)
+  const productIds = orderItems.filter(i => i.variantType !== 'accessory').map(x => x.product)
   const accessoryIds = orderItems.filter(i => i.variantType === 'accessory').map(x => x.product)
 
   const itemsFromDB = await Product.find({ _id: { $in: productIds } })
   const accessoriesFromDB = await Accessory.find({ _id: { $in: accessoryIds } })
 
-  const allDbItems = [...itemsFromDB,...accessoriesFromDB]
+  const allDbItems = [...itemsFromDB, ...accessoriesFromDB]
   const dbItemIds = allDbItems.map(p => p._id.toString())
 
-  const missingItems = orderItems.filter(item =>!dbItemIds.includes(item.product))
+  const missingItems = orderItems.filter(item => !dbItemIds.includes(item.product))
   if (missingItems.length > 0) {
     console.log('Missing item IDs:', missingItems.map(i => i.product))
     res.status(404)
@@ -754,15 +873,15 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
       variantSubName: itemFromClient.variantSubName,
       model: itemFromClient.model,
       sku: itemFromClient.sku,
-      product: isAccessory? undefined : itemFromClient.product,
-      accessory: isAccessory? itemFromClient.product : undefined,
+      product: isAccessory ? undefined : itemFromClient.product,
+      accessory: isAccessory ? itemFromClient.product : undefined,
     };
   });
 
   // 2. Calculate prices - UPDATED
   const { itemsPrice, shippingPrice, taxPrice, totalPrice } = calcPrices(
     dbOrderItems,
-    shippingAddress,  
+    shippingAddress,
     'Stripe'
   )
 
@@ -782,21 +901,21 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
   // 4. Send "Order Received" email
   try {
     const user = await User.findById(req.user._id)
-    
+
     const itemsHtml = dbOrderItems.map(item => {
-      const imgSrc = item.image?.startsWith('http') 
-       ? item.image 
+      const imgSrc = item.image?.startsWith('http')
+        ? item.image
         : `${process.env.FRONTEND_URL || 'https://phone-store.asia'}${item.image || ''}`
-      
+
       return `
       <div style="display:flex;align-items:center;margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:10px">
         <img src="${imgSrc}" width="60" style="border-radius:6px;margin-right:12px"/>
         <div style="flex:1">
           <div style="font-weight:600">${item.name}</div>
           <div style="font-size:13px;color:#666">
-            ${item.model? `Model: ${item.model} | ` : ''}
-            ${item.variantSubName? `${item.variantSubName} | ` : ''}
-            Color: ${item.color || 'N/A'} ${item.storage? `| Storage: ${item.storage}` : ''}
+            ${item.model ? `Model: ${item.model} | ` : ''}
+            ${item.variantSubName ? `${item.variantSubName} | ` : ''}
+            Color: ${item.color || 'N/A'} ${item.storage ? `| Storage: ${item.storage}` : ''}
           </div>
           <div style="font-size:13px">${item.qty} x ${order.currency} ${item.price.toFixed(2)}</div>
         </div>
@@ -837,7 +956,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     price_data: {
       currency: currency,
       product_data: {
-        name: `${item.name} ${item.model? `for ${item.model}` : ''} (${item.color} ${item.variantSubName || item.storage || ''})`,
+        name: `${item.name} ${item.model ? `for ${item.model}` : ''} (${item.color} ${item.variantSubName || item.storage || ''})`,
         images: [item.image],
       },
       unit_amount: Math.round(item.price * 100),
@@ -943,7 +1062,7 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
       }
 
 
-       // 2. NEW: INCREASE allSales FOR PRODUCTS AND ACCESSORIES
+      // 2. NEW: INCREASE allSales FOR PRODUCTS AND ACCESSORIES
       // for (const item of order.orderItems) {
       //   if (item.product) { // It's a product
       //     await Product.findByIdAndUpdate(item.product, {
@@ -962,7 +1081,7 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
         return res.json(order)
       }
 
-     
+
 
       // 4. Get email from Stripe
       const customerEmail = session.customer_details?.email || session.customer_email
@@ -975,7 +1094,7 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
         update_time: new Date().toISOString(),
         email_address: customerEmail,
       }
- 
+
       const updatedOrder = await order.save()
 
       // 5. SEND "PAYMENT SUCCESSFUL" EMAIL - FIXED PAYLOAD

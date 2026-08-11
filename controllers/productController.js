@@ -769,42 +769,40 @@ const getRecommendedProducts = asyncHandler(async (req, res) => {
 const getFrequentlyBoughtTogether = asyncHandler(async (req, res) => {
   const productId = req.params.id
   const model = req.query.model || 'Universal' // "Apple iPhone 16 Pro Max"
-  const color = req.query.color || 'White' // <- ADD THIS. Default to White
+  const color = req.query.color || '' // don't default to White anymore
 
   const product = await Product.findById(productId)
-  .populate({
+ .populate({
       path: 'frequentlyBoughtWith.accessory',
       select: 'name slug brand accessoryType models discount',
       model: 'Accessory'
     })
-  .lean()
+ .lean()
 
   if (!product) return res.status(404).json({ message: 'Product not found' })
   if (!product.frequentlyBoughtWith?.length) return res.json([])
 
   const topAccessories = product.frequentlyBoughtWith
-  .filter(item => item.accessory)
-  .sort((a, b) => b.count - a.count)
-  .slice(0, 8)
-  .map(item => {
+ .filter(item => item.accessory)
+ .sort((a, b) => b.count - a.count)
+ .slice(0, 8)
+ .map(item => {
       const acc = item.accessory
       
-      // 1. KEY FIX: Match by models.modelName
+      // 1. Match by models.modelName
       const modelMatch = acc.models?.find(m => 
         m.modelName?.toLowerCase() === model.toLowerCase() ||
         model.toLowerCase().includes(m.modelName?.toLowerCase()) ||
         m.modelName?.toLowerCase() === 'universal'
       ) || acc.models?.[0]
 
-      // 2. KEY FIX: Match by color inside that model
+      // 2. KEY FIX: Match by variant NAME, not color field
+      // Try: 1. exact color param match to variant.name 
+      // 2. fallback to first variant of model
       const variant = modelMatch?.variants?.find(v => 
-        v.color?.toLowerCase() === color.toLowerCase() ||
-        v.name?.toLowerCase().includes(color.toLowerCase())
+        color && v.name?.toLowerCase().includes(color.toLowerCase())
       ) 
-      // 2nd fallback: prefer White if color not found
-      || modelMatch?.variants?.find(v => v.color?.toLowerCase().includes('white')) 
-      // 3rd fallback: first variant
-      || modelMatch?.variants?.[0]
+      || modelMatch?.variants?.[0] // always fallback to first variant
 
       const price = Number(variant?.price || variant?.originalPrice || 0)
       const originalPrice = Number(variant?.originalPrice || variant?.price || 0)
@@ -815,12 +813,15 @@ const getFrequentlyBoughtTogether = asyncHandler(async (req, res) => {
         slug: acc.slug,
         brand: acc.brand,
         accessoryType: acc.accessoryType,
-        color: variant?.color || 'Default', // <- NOW CORRECT COLOR
-        variantSubName: variant?.name,
+        variants: modelMatch?.variants || [], // send all variants so frontend can switch
         model: modelMatch?.modelName || 'Universal',
+        // KEY FIX: color = variant name. This makes FBT + Product page match
+        color: variant?.name || 'Default', 
+        variantName: variant?.name,
+        variantSubName: variant?.name,
         price: price,
         originalPrice: originalPrice,
-        image: variant?.images?.[0]?.url || '/placeholder.png', // <- NOW CORRECT IMAGE
+        image: variant?.images?.[0]?.url || '/placeholder.png', // correct image per variant
         countInStock: variant?.countInStock || 0,
         sku: variant?.sku || '',
         discount: variant?.discount || acc.discount || { isActive: false, value: 0 },
