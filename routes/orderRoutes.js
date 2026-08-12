@@ -204,6 +204,39 @@ router.get('/myorders', protect, async (req, res) => {
   res.json(safeOrders)
 })
 
+// @desc    Get ALL orders for admin dashboard stats - NO PAGINATION
+// @route   GET /api/orders/all
+// @access  Private/Admin
+router.get('/all', protect, admin, asyncHandler(async (req, res) => {
+  const orders = await Order.find({})
+    .populate('user', 'id name email')
+    .populate({
+      path: 'orderItems.product',
+      select: 'name image'
+    })
+    .populate({
+      path: 'orderItems.accessory',
+      select: 'name image'
+    })
+    .sort({ createdAt: -1 })
+
+  // Same merge logic as your paginated route so frontend gets name/image even if deleted
+  const safeOrders = orders.map(order => ({
+    ...order.toObject(),
+    orderItems: order.orderItems.map(item => {
+      const populatedData = item.product || item.accessory || {}
+      return {
+        ...item,
+        name: populatedData.name || item.name,
+        image: populatedData.image || item.image,
+        price: populatedData.price || item.price,
+      }
+    })
+  }))
+
+  res.json(safeOrders)
+}))
+
 // @desc    Get order by ID
 // @route   GET /api/orders/:id
 // @access  Private
@@ -548,7 +581,7 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
 
   res.json(updatedOrder)
 }))
-
+ 
 
 // @desc    Get all orders
 // @route   GET /api/orders
@@ -663,7 +696,7 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
 // @route   PUT /api/orders/:id/cancel
 // @access  Private/Admin
 router.put('/:id/cancel', protect, admin, asyncHandler(async (req, res) => {
-  const { cancelReason, cancelCode } = req.body // <-- ADD THIS
+  const { cancelReason, cancelCode } = req.body || {}
 
   const order = await Order.findById(req.params.id).populate('user', 'name email')
 
@@ -677,32 +710,38 @@ router.put('/:id/cancel', protect, admin, asyncHandler(async (req, res) => {
     throw new Error('Order already cancelled')
   }
 
-  if (order.isDelivered) {
+  // RULE 1: Block non-COD orders if already delivered
+  if (order.isDelivered && order.paymentMethod !== 'COD') {
     res.status(400)
     throw new Error('Cannot cancel delivered order. Use return/refund instead')
   }
 
+  // RULE 2: Block COD orders if NOT delivered yet
+  if (!order.isDelivered && order.paymentMethod === 'COD') {
+    res.status(400)
+    throw new Error('Cannot cancel COD order before delivery')
+  }
+
   order.isCancelled = true
   order.cancelledAt = Date.now()
-  order.cancelReason = cancelReason || 'Cancelled by admin' // <-- ADD THIS
-  order.cancelCode = cancelCode || 'ADMIN_CANCEL_COD'       // <-- ADD THIS
+  order.cancelReason = cancelReason || 'Cancelled by admin'
+  order.cancelCode = cancelCode || 'ADMIN_CANCEL_COD'
 
   // KEY: DECREASE allSales FOR PRODUCTS AND ACCESSORIES
-  // This covers COD, Stripe, JazzCash - any payment method
   for (const item of order.orderItems) {
-    if (item.product) { // It's a product
+    if (item.product) {
       await Product.findByIdAndUpdate(item.product, {
         $inc: { allSales: -item.qty }
       })
     }
-    if (item.accessory) { // It's an accessory including FBT
+    if (item.accessory) {
       await Accessory.findByIdAndUpdate(item.accessory, {
         $inc: { allSales: -item.qty }
       })
     }
   }
 
-  // === NEW: DECREMENT FREQUENTLY BOUGHT TOGETHER ===
+  // === DECREMENT FREQUENTLY BOUGHT TOGETHER ===
   const productsInOrder = order.orderItems.filter(i => i.product).map(i => i.product)
   const accessoriesInOrder = order.orderItems.filter(i => i.accessory).map(i => i.accessory)
 
@@ -730,6 +769,7 @@ router.put('/:id/cancel', protect, admin, asyncHandler(async (req, res) => {
   if (order.isPaid) {
     order.isRefunded = true
     order.refundedAt = Date.now()
+    order.refundAmount = order.totalPrice
   }
 
   const updatedOrder = await order.save()
