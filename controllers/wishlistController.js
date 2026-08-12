@@ -1,134 +1,170 @@
 const asyncHandler = require('express-async-handler')
-const User = require('../models/User')
-const Product = require('../models/Product')
+const Wishlist = require('../models/wishlistModel')
+const calculateDiscount = require('../utils/discountHelper.js')
 
- 
-// @desc    Get logged in user wishlist
-// @route   GET /api/users/wishlist  
-// @access  Private
 const getWishlist = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id)
+  const wishlist = await Wishlist.findOne({ user: req.user._id })
+  .populate('items.product', 'name slug variants images')
+  .populate('items.accessory', 'name slug brand image models accessoryType')
 
-  if (!user) {
-    res.status(404)
-    throw new Error('User not found')
-  }
+  if (!wishlist) return res.json({ items: [] })
 
-  await user.populate({
-    path: 'wishlist',
-    select: 'name price image countInStock colors slug', 
+  let items = wishlist.items.filter(item => 
+    (item.type === 'product' && item.product) || 
+    (item.type === 'accessory' && item.accessory)
+  )
+
+  items = items.map(item => {
+    if (item.type === 'product' && item.product) {
+      const p = item.product.toObject()
+      const vIdx = item.productVariantIndex?? 0
+      const cIdx = item.productColorIndex?? 0
+      const variant = p.variants?.[vIdx]
+      const color = variant?.colors?.[cIdx]
+
+      if (variant && color) {
+        const { finalPrice, discountAmount, isActive } = calculateDiscount(color.price, color.discount)
+        item.product.variants[vIdx].colors[cIdx] = {
+        ...color,
+          price: finalPrice,
+          originalPrice: color.price,
+          discount: {...color.discount, isActive},
+          discountAmount
+        }
+      }
+    }
+
+    if (item.type === 'accessory' && item.accessory) {
+      const a = item.accessory.toObject()
+      const mIdx = item.modelIndex?? 0
+      const vIdx = item.accessoryVariantIndex?? 0
+      const model = a.models?.[mIdx]
+      const variant = model?.variants?.[vIdx]
+
+      if (model && variant) {
+        const { finalPrice, discountAmount, isActive } = calculateDiscount(variant.price, variant.discount)
+        item.accessory.models[mIdx].variants[vIdx] = {
+        ...variant,
+          price: finalPrice,
+          originalPrice: variant.price,
+          discount: {...variant.discount, isActive},
+          discountAmount
+        }
+      }
+    }
+    return item
   })
 
-  // Filter out null products - same fix as cart
-  const validWishlist = user?.wishlist.filter(item => item) || []
-
-  // Clean DB if we found nulls
-  if (validWishlist.length !== user.wishlist.length) {
-    user.wishlist = validWishlist
-    await user.save()
-  }
-
-  res.json(validWishlist)
+  res.json({...wishlist.toObject(), items })
 })
 
-// @desc Add item to wishlist
-// @route POST /api/users/wishlist
-// @access Private
-const addToWishlist = asyncHandler(async (req, res) => {
-  //console.log(req.body)
-  const { product, name, color, storage, image, price, countInStock, slug, originalPrice, discountAmount } = req.body
+ 
+
+// @desc    Toggle wishlist item - add if not exist, remove if exist
+// @route   POST /api/wishlist/toggle
+// @access  Private
+const toggleWishlist = asyncHandler(async (req, res) => {
+  const { 
+    type, 
+    productId, 
+    accessoryId, 
+    modelIndex = 0, 
+    accessoryVariantIndex = 0, // renamed
+    productVariantIndex = 0,   // new
+    productColorIndex = 0      // new
+  } = req.body
+  const userId = req.user._id
+
+  if (!type || (type === 'product' && !productId) || (type === 'accessory' && !accessoryId)) {
+    res.status(400)
+    throw new Error('Invalid request body')
+  }
+
+  let wishlist = await Wishlist.findOne({ user: userId })
+  if (!wishlist) {
+    wishlist = await Wishlist.create({ user: userId, items: [] })
+  }
+
+  // Find if EXACT same variant already exists
+  const existingIndex = wishlist.items.findIndex(item => {
+    if (type === 'product') {
+      return item.type === 'product' && 
+             item.product?.toString() === productId &&
+             item.productVariantIndex === productVariantIndex &&
+             item.productColorIndex === productColorIndex
+    }
+    if (type === 'accessory') {
+      return item.type === 'accessory' && 
+             item.accessory?.toString() === accessoryId && 
+             item.modelIndex === modelIndex && 
+             item.accessoryVariantIndex === accessoryVariantIndex
+    }
+    return false
+  })
+
+  let action = ''
+  if (existingIndex > -1) {
+    // Remove
+    wishlist.items.splice(existingIndex, 1)
+    action = 'removed'
+  } else {
+    // Add new variant
+    wishlist.items.push({
+      type,
+      product: type === 'product' ? productId : undefined,
+      accessory: type === 'accessory' ? accessoryId : undefined,
+      productVariantIndex,
+      productColorIndex,
+      modelIndex,
+      accessoryVariantIndex
+    })
+    action = 'added'
+  }
+
+  await wishlist.save()
   
-//console.log('Backend received:', req.body.storage)
-      if (!product || !name || !color || !image || !price || !storage || !slug) { // V24.6 KEY
-      res.status(400);
-      throw new Error('Missing required fields: product, name, color, storage, image, price, slug')
-    }
+  const populated = await wishlist.populate([
+    { path: 'items.product', select: 'name slug variants images' },
+    { path: 'items.accessory', select: 'name slug brand image models accessoryType' }
+  ])
 
-  const user = await User.findById(req.user._id)
-
-  if (user) {
-    // FIX: Check if item.product exists before calling toString()
-   const alreadyExists = user.wishlist.find(
-  (item) => 
-    item.product && 
-    item.product.toString() === product && 
-    item.storage === storage && // V24.6 KEY
-    item.color === color
-)
-
-    if (alreadyExists) {
-      res.status(400)
-      throw new Error('Item already in wishlist')
-    }
-
-    const wishlistItem = { 
-      product, 
-      slug,
-      name, 
-      color, 
-      image, 
-      price,
-      originalPrice,
-      discountAmount,
-      storage,
-      countInStock: countInStock || 0,
-      qty: 1,
-    }
-    
-    user.wishlist.push(wishlistItem)
-    await user.save()
-    res.status(201).json(user.wishlist)
-  } else {
-    res.status(404)
-    throw new Error('User not found')
-  }
+  res.json({ message: `Item ${action}`, wishlist: populated })
 })
 
-// @desc Remove item from wishlist
-// @route DELETE /api/users/wishlist/:id
-// @access Private
-const removeFromWishlist = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id)
+// @desc    Remove item from wishlist by item._id
+// @route   DELETE /api/wishlist/:itemId
+// @access  Private
+const removeWishlistItem = asyncHandler(async (req, res) => {
+  const wishlist = await Wishlist.findOne({ user: req.user._id })
 
-  if (user) {
-    user.wishlist = user.wishlist.filter(
-      (item) => item._id.toString() !== req.params.id
-    )
-    await user.save()
-    res.json(user.wishlist)
-  } else {
+  if (!wishlist) {
     res.status(404)
-    throw new Error('User not found')
+    throw new Error('Wishlist not found')
   }
+
+  wishlist.items = wishlist.items.filter(
+    (item) => item._id.toString() !== req.params.itemId
+  )
+
+  await wishlist.save()
+  res.json({ message: 'Item removed', wishlist })
 })
 
-// @desc Update wishlist item qty
-// @route PUT /api/users/wishlist/:id
-// @access Private
-const updateWishlistItemQty = asyncHandler(async (req, res) => {
-  const { qty } = req.body
-  const user = await User.findById(req.user._id)
-
-  if (user) {
-    const wishlistItem = user.wishlist.id(req.params.id)
-    
-    if (wishlistItem) {
-      wishlistItem.qty = Number(qty)
-      await user.save()
-      res.json(wishlistItem)
-    } else {
-      res.status(404)
-      throw new Error('Wishlist item not found')
-    }
-  } else {
-    res.status(404)
-    throw new Error('User not found')
+// @desc    Clear entire wishlist
+// @route   DELETE /api/wishlist
+// @access  Private
+const clearWishlist = asyncHandler(async (req, res) => {
+  const wishlist = await Wishlist.findOne({ user: req.user._id })
+  if (wishlist) {
+    wishlist.items = []
+    await wishlist.save()
   }
+  res.json({ message: 'Wishlist cleared' })
 })
 
 module.exports = {
   getWishlist,
-  addToWishlist,
-  removeFromWishlist,
-  updateWishlistItemQty,
+  toggleWishlist,
+  removeWishlistItem,
+  clearWishlist,
 }

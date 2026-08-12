@@ -16,12 +16,12 @@ const {
    getUserCart,
    
 } = require('../controllers/userController')
-const {
-  getWishlist,
-  addToWishlist,
-  removeFromWishlist,
-  updateWishlistItemQty,
-} = require('../controllers/wishlistController') // NEW IMPORT
+// const {
+//   getWishlist,
+//   addToWishlist,
+//   removeFromWishlist,
+//   updateWishlistItemQty,
+// } = require('../controllers/wishlistController') // NEW IMPORT
 const asyncHandler = require('express-async-handler');
  
 // Generate JWT
@@ -140,11 +140,11 @@ if (isDemoAdmin) {
 
 
 
-router.route('/wishlist')
-  .get(protect, getWishlist)
-  .post(protect, addToWishlist)
+// router.route('/wishlist')
+//   .get(protect, getWishlist)
+//   .post(protect, addToWishlist)
 
-router.route('/wishlist/:id').delete(protect, removeFromWishlist).put(protect, updateWishlistItemQty)
+// router.route('/wishlist/:id').delete(protect, removeFromWishlist).put(protect, updateWishlistItemQty)
 
 // @desc    Get all users
 // @route   GET /api/users

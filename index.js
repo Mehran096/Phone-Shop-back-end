@@ -16,6 +16,7 @@ const contactRoutes = require('./routes/contactRoutes.js');
 const uploadRoutes = require('./routes/uploadRoutes.js');
 const sitemapRoutes = require('./routes/sitemapRoutes.js' )
 const accessoryRoutes = require('./routes/accessoryRoutes.js');
+const wishlistRoutes = require('./routes/wishlistRoutes')
 const Stripe = require('stripe');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
   const Order = require('./models/orderModel.js');
@@ -318,6 +319,7 @@ app.use(compression())
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/accessories', accessoryRoutes);
+app.use('/api/wishlist', wishlistRoutes);
 
 app.use('/api/orders', orderRoutes);
 app.use('/api/contact', contactRoutes)
