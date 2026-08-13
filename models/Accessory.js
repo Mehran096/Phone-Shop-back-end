@@ -4,9 +4,36 @@ const slugify = require('slugify');
 const reviewSchema = mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
+  title: { 
+    type: String, 
+    trim: true, 
+    maxlength: 120,
+  }, // removed required so it's optional
+  
   rating: { type: Number, required: true },
+  
+  // CHANGED FOR ACCESSORIES
+  model: { type: String, default: '' }, // "iPhone 17 Pro Max" or "Universal"
+  variant: { type: String, default: '' }, // "White 20W" or "1m Cable"
+  
   comment: { type: String, required: true },
-}, { timestamps: true });
+  
+  helpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  nothelpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  verifiedPurchase: { type: Boolean, default: false },
+  
+  images: [{ 
+    url: { type: String, required: true }, 
+    imagePublicId: { type: String, required: true } 
+  }],
+  
+  adminReply: { 
+    reply: String, 
+    name: String, 
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, 
+    createdAt: { type: Date, default: Date.now } 
+  },
+}, { timestamps: true })
 
 // 1. DISCOUNT SCHEMA - same as you have
 const discountSchema = new mongoose.Schema({

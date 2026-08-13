@@ -7,20 +7,19 @@ const { cloudinary } = require('../utils/cloudinary');
 const calculateDiscount = require('../utils/discountHelper');
 const calculateBulkPrice = require('../utils/bulkPriceHelper');
 
-// HELPER: Apply discount + bulk pricing to a variant
+ 
+// HELPER: Apply discount + bulk pricing to a variant - FOR DISPLAY ONLY
 const processVariant = (variant, qty = 1) => {
-  // 1. Get prices from DB. Admin controls these
-  const originalPrice = Number(variant.originalPrice) || 0; 
-  const dbPrice = Number(variant.price) || Number(variant.originalPrice) || 0;
+  const originalPrice = Number(variant.originalPrice) || 0;
+  const dbPrice = Number(variant.price) || 0; // This is already discounted from DB
 
-  // 2. Apply normal discount to DB PRICE, not original
-  const { finalPrice: discountedPrice } = calculateDiscount(dbPrice, variant.discount);
+  // Find bulk tier from DB that we already saved
+  const appliedTier = (variant.bulkPricing || [])
+   .filter(t => qty >= Number(t.qty))
+   .sort((a, b) => Number(b.qty) - Number(a.qty))[0];
 
-  // 3. Apply bulk pricing on top of discounted price
-  const { pricePerItem, totalPrice, appliedTier } = calculateBulkPrice(discountedPrice, qty, variant.bulkPricing);
-
-  // FIX: If no bulk pricing, pricePerItem will be 0. Use discountedPrice instead
-  const finalDisplayPrice = pricePerItem > 0 ? pricePerItem : discountedPrice;
+  const pricePerItem = appliedTier? Number(appliedTier.price) : dbPrice;
+  const totalPrice = Number((pricePerItem * qty).toFixed(2));
 
   return {
     sku: variant.sku,
@@ -36,10 +35,10 @@ const processVariant = (variant, qty = 1) => {
     connectorType: variant.connectorType || '',
     audioBits: variant.audioBits || '',
 
-    originalPrice: originalPrice > dbPrice ? originalPrice : null, // Only show strikethrough if there IS a discount
-    price: dbPrice, // <- ADMIN SET PRICE. THIS WON'T CHANGE NOW
-    displayPrice: finalDisplayPrice, // <- FINAL PRICE CUSTOMER SEES AFTER DISCOUNT+BULK
-    totalPrice: totalPrice || finalDisplayPrice * qty,
+    originalPrice: originalPrice > dbPrice? originalPrice : null,
+    price: dbPrice, // DB price
+    displayPrice: pricePerItem, // Final price with bulk
+    totalPrice: totalPrice,
     discount: variant.discount,
     bulkPricing: variant.bulkPricing || [],
     appliedBulkTier: appliedTier,
@@ -47,6 +46,43 @@ const processVariant = (variant, qty = 1) => {
     images: (variant.images || []).filter(img => img.url),
   };
 };
+
+// HELPER: Auto calculate price + bulk before saving - Rule B
+const applyAccessoryDiscountCalc = (variant) => {
+  if(!variant.discount?.isActive){
+    variant.price = Number(variant.originalPrice || 0)
+    variant.discountAmount = 0
+    return
+  }
+
+  const original = Number(variant.originalPrice || 0)
+  const discountValue = Number(variant.discount.value || 0)
+  const discountType = variant.discount.type || 'percentage'
+  
+  let price = original
+  if(discountType === 'percentage' && discountValue > 0){
+    price = Number((original * (1 - discountValue/100)).toFixed(2))
+  } else if(discountType === 'fixed' && discountValue > 0){
+    price = Number((original - discountValue).toFixed(2))
+  }
+
+  const amount = Number((original - price).toFixed(2))
+  
+  variant.price = price
+  variant.discountAmount = amount // NEW
+  variant.discount.value = original > 0 ? Math.round((amount / original) * 100) : discountValue // NEW: sync %
+
+  // Bulk from ORIGINAL - Rule B
+  if(variant.bulkPricing?.length > 0){
+    variant.bulkPricing = variant.bulkPricing.map(tier => {
+      const tierPercent = Number(String(tier.discountLabel || '').replace('%','')) || 0
+      const bulkPrice = tierPercent > 0 
+        ? Number((original * (1 - tierPercent/100)).toFixed(2))
+        : price
+      return {...tier, price: bulkPrice }
+    })
+  }
+}
 
 // HELPER: Clean models > variants structure - FOR SAVE
 const cleanModels = (models = []) => {
@@ -56,39 +92,46 @@ const cleanModels = (models = []) => {
     specs: (model.specs || []).filter(s => s.key),
     variants: (model.variants || [])
       .filter(v => v.sku && v.name)
-      .map(v => ({
-        sku: v.sku,
-        name: v.name,
-        color: v.color || '',
-        colorHex: v.colorHex || '#000',
-        wattage: v.wattage || '',
-        cableType: v.cableType || '',
-        cableLength: v.cableLength || '',
-        hardness: v.hardness || '',
-        thickness: v.thickness || '',
-        glassType: v.glassType || '',
-        connectorType: v.connectorType || '',
-        audioBits: v.audioBits || '',
-        
-        // NEW: Save originalPrice from admin
-        originalPrice: Number(v.originalPrice) || 0,
-        price: Number(v.price) || 0, // This should be "after single discount"
-        
-        discount: {
-          type: v.discount?.type || 'percentage',
-          value: Number(v.discount?.value) || 0,
-          startDate: v.discount?.startDate || null,
-          endDate: v.discount?.endDate || null,
-          isActive: v.discount?.isActive || false,
-        },
-        bulkPricing: (v.bulkPricing || []).map(b => ({
-          qty: Number(b.qty),
-          price: Number(b.price), // price PER ITEM
-          discountLabel: b.discountLabel || ''
-        })),
-        countInStock: Number(v.countInStock) || 0,
-        images: (v.images || []).filter(img => img.url),
-      })),
+      .map(v => {
+        // 1. First build the variant object
+        const newVariant = {
+          sku: v.sku,
+          name: v.name,
+          color: v.color || '',
+          colorHex: v.colorHex || '#000',
+          wattage: v.wattage || '',
+          cableType: v.cableType || '',
+          cableLength: v.cableLength || '',
+          hardness: v.hardness || '',
+          thickness: v.thickness || '',
+          glassType: v.glassType || '',
+          connectorType: v.connectorType || '',
+          audioBits: v.audioBits || '',
+          
+          // Admin inputs
+          originalPrice: Number(v.originalPrice) || 0,
+          price: Number(v.price) || 0, // Will be overwritten by auto-calc
+          
+          discount: {
+            type: v.discount?.type || 'percentage',
+            value: Number(v.discount?.value) || 0,
+            startDate: v.discount?.startDate || null,
+            endDate: v.discount?.endDate || null,
+            isActive: v.discount?.isActive || false,
+          },
+          bulkPricing: (v.bulkPricing || []).map(b => ({
+            qty: Number(b.qty),
+            price: Number(b.price), // Will be overwritten by auto-calc
+            discountLabel: b.discountLabel || ''
+          })),
+          countInStock: Number(v.countInStock) || 0,
+          images: (v.images || []).filter(img => img.url),
+        }
+
+        // 2. Run auto-calc on it before returning
+        applyAccessoryDiscountCalc(newVariant)
+        return newVariant
+      }),
   })).filter(m => m.variants.length > 0);
 };
 
