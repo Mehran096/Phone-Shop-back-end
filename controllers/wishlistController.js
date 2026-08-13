@@ -4,8 +4,8 @@ const calculateDiscount = require('../utils/discountHelper.js')
 
 const getWishlist = asyncHandler(async (req, res) => {
   const wishlist = await Wishlist.findOne({ user: req.user._id })
-  .populate('items.product', 'name slug variants images')
-  .populate('items.accessory', 'name slug brand image models accessoryType')
+ .populate('items.product', 'name slug variants images')
+ .populate('items.accessory', 'name slug brand image models accessoryType')
 
   if (!wishlist) return res.json({ items: [] })
 
@@ -16,7 +16,7 @@ const getWishlist = asyncHandler(async (req, res) => {
 
   items = items.map(item => {
     if (item.type === 'product' && item.product) {
-      const p = item.product.toObject()
+      const p = item.product.toObject() // we already do this
       const vIdx = item.productVariantIndex?? 0
       const cIdx = item.productColorIndex?? 0
       const variant = p.variants?.[vIdx]
@@ -24,34 +24,39 @@ const getWishlist = asyncHandler(async (req, res) => {
 
       if (variant && color) {
         const { finalPrice, discountAmount, isActive } = calculateDiscount(color.price, color.discount)
-        item.product.variants[vIdx].colors[cIdx] = {
-        ...color,
+        // KEY FIX: Mutate 'p' not 'item.product'
+        p.variants[vIdx].colors[cIdx] = {
+       ...color,
           price: finalPrice,
           originalPrice: color.price,
           discount: {...color.discount, isActive},
           discountAmount
         }
       }
+      item.product = p // KEY FIX: assign back the mutated object
     }
 
     if (item.type === 'accessory' && item.accessory) {
-      const a = item.accessory.toObject()
-      const mIdx = item.modelIndex?? 0
-      const vIdx = item.accessoryVariantIndex?? 0
-      const model = a.models?.[mIdx]
-      const variant = model?.variants?.[vIdx]
+  const a = item.accessory.toObject() // we already do this
+  const mIdx = item.modelIndex?? 0
+  const vIdx = item.accessoryVariantIndex?? 0
+  const model = a.models?.[mIdx]
+  const variant = model?.variants?.[vIdx]
 
-      if (model && variant) {
-        const { finalPrice, discountAmount, isActive } = calculateDiscount(variant.price, variant.discount)
-        item.accessory.models[mIdx].variants[vIdx] = {
-        ...variant,
-          price: finalPrice,
-          originalPrice: variant.price,
-          discount: {...variant.discount, isActive},
-          discountAmount
-        }
-      }
+  if (model && variant) {
+    const basePrice = variant.originalPrice || variant.price // KEY FIX
+    const { finalPrice, discountAmount, isActive } = calculateDiscount(basePrice, variant.discount)
+    // KEY FIX: Mutate 'a' not 'item.accessory'
+    a.models[mIdx].variants[vIdx] = {
+     ...variant,
+      price: finalPrice,
+      originalPrice: basePrice,
+      discount: {...variant.discount, isActive},
+      discountAmount
     }
+  }
+  item.accessory = a // KEY FIX: assign back the mutated object
+}
     return item
   })
 
