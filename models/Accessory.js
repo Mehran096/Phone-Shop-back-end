@@ -8,7 +8,7 @@ const reviewSchema = mongoose.Schema({
     type: String, 
     trim: true, 
     maxlength: 120,
-  }, // removed required so it's optional
+  },  
   
   rating: { type: Number, required: true },
   
@@ -19,7 +19,7 @@ const reviewSchema = mongoose.Schema({
   comment: { type: String, required: true },
   
   helpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  nothelpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  notHelpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   verifiedPurchase: { type: Boolean, default: false },
   
   images: [{ 
@@ -27,12 +27,12 @@ const reviewSchema = mongoose.Schema({
     imagePublicId: { type: String, required: true } 
   }],
   
-  adminReply: { 
-    reply: String, 
-    name: String, 
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, 
-    createdAt: { type: Date, default: Date.now } 
-  },
+  replies: [{
+    user: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
+    name: { type: String, required: true },
+    comment: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now }
+  }],
 }, { timestamps: true })
 
 // 1. DISCOUNT SCHEMA - same as you have

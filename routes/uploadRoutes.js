@@ -73,6 +73,25 @@ router.post('/accessories', protect, admin, (req, res) => {
   });
 });
 
+// V33.80 KEY: ACCESSORY REVIEWS ROUTE - 3 FILES MAX
+router.post('/accessory-reviews', protect, (req, res) => {
+  const upload = multer({ storage: createStorage('accessory-reviews') }).array('images', 3);
+
+  upload(req, res, (err) => {
+    if (err) return res.status(400).json({ message: err.message });
+
+    const files = req.files || [];
+
+    // V33.80 KEY: File is optional. Return empty array if no files
+    const uploaded = files.map((file) => ({
+      url: file.path,           // Cloudinary URL
+      imagePublicId: file.filename // public_id
+    }));
+
+    return res.status(200).json(uploaded); // [] if no files = 200 OK
+  });
+});
+
 // V9.9 KEY: ADD THIS DELETE ROUTE FOR `❌` BUTTON L75 Frontend
 // V9.14 KEY: Express v4 safe regex. Catches everything after /
 // V31.34 KEY: We only read from req.body. No params.
