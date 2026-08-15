@@ -125,44 +125,56 @@ const getAccessoryReviews = asyncHandler(async (req, res) => {
 // @access  Private
 const updateAccessoryReview = asyncHandler(async (req, res) => {
   const { rating, title, comment, images } = req.body
-  const { slug, reviewId } = req.params // CHANGED
-  const accessory = await Accessory.findOne({ slug }) // CHANGED
+  const { slug, reviewId } = req.params
+  const accessory = await Accessory.findOne({ slug })
 
-  if (accessory) {
-    const review = accessory.reviews.id(reviewId)
-    if (!review) {
-      res.status(404)
-      throw new Error('Review not found')
-    }
-    if (review.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-      res.status(401)
-      throw new Error('Not authorized')
-    }
-
-    if (images && review.images.length > 0) {
-      const oldPublicIds = review.images.map(img => img.imagePublicId).filter(Boolean)
-      const newPublicIds = images.map(img => img.imagePublicId).filter(Boolean)
-      const toDelete = oldPublicIds.filter(id => !newPublicIds.includes(id))
-      if(toDelete.length > 0){
-        await cloudinary.api.delete_resources(toDelete)
-      }
-    }
-
-    review.rating = Number(rating)
-    review.title = title || ''
-    review.comment = comment
-    review.images = images || []
-
-    accessory.numReviews = accessory.reviews.length
-    accessory.rating = accessory.reviews.reduce((acc, item) => item.rating + acc, 0) / accessory.reviews.length
-    await accessory.save()
-
-   const updatedReview = accessory.reviews.id(reviewId)
-  res.status(200).json(updatedReview)
-  } else {
+  if (!accessory) {
     res.status(404)
     throw new Error('Accessory not found')
   }
+
+  const review = accessory.reviews.id(reviewId)
+  if (!review) {
+    res.status(404)
+    throw new Error('Review not found')
+  }
+  if (review.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+    res.status(401)
+    throw new Error('Not authorized')
+  }
+
+  // 1. FIND IMAGES TO DELETE - only if user removed some
+  if (images) {
+    const oldPublicIds = review.images?.map(img => img.imagePublicId).filter(Boolean) || []
+    const newPublicIds = images.map(img => img.imagePublicId).filter(Boolean)
+    const toDelete = oldPublicIds.filter(id => !newPublicIds.includes(id))
+    
+    if(toDelete.length > 0){
+      try {
+        await cloudinary.api.delete_resources(toDelete)
+        console.log('Deleted from cloudinary:', toDelete)
+      } catch (err) {
+        console.error('Cloudinary delete error:', err)
+      }
+    }
+  }
+
+  // 2. UPDATE REVIEW
+  review.rating = Number(rating)
+  review.title = title || ''
+  review.comment = comment
+  review.images = images || [] // save the new array
+
+  // 3. RECALCULATE RATING
+  accessory.numReviews = accessory.reviews.length
+  accessory.rating = accessory.reviews.length > 0 
+    ? accessory.reviews.reduce((acc, item) => item.rating + acc, 0) / accessory.reviews.length 
+    : 0
+    
+  await accessory.save()
+
+  const updatedReview = accessory.reviews.id(reviewId)
+  res.status(200).json(updatedReview)
 })
 
 // @desc    Delete review

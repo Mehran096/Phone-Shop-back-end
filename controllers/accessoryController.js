@@ -326,6 +326,8 @@ const deleteAccessory = asyncHandler(async (req, res) => {
   }
 
   const publicIdsToDelete = new Set();
+
+  // 1. DELETE VARIANT IMAGES
   accessory.models?.forEach((model) => {
     model.variants?.forEach((variant) => {
       variant.images?.forEach((img) => {
@@ -334,6 +336,21 @@ const deleteAccessory = asyncHandler(async (req, res) => {
     });
   });
 
+  // 2. DELETE REVIEW IMAGES - NEW
+  accessory.reviews?.forEach((review) => {
+    review.images?.forEach((img) => {
+      if (img.imagePublicId) publicIdsToDelete.add(img.imagePublicId);
+    });
+    
+    // 2.1 DELETE REPLY IMAGES IF YOU HAVE THEM LATER
+    review.replies?.forEach((reply) => {
+      reply.images?.forEach((img) => {
+        if (img.imagePublicId) publicIdsToDelete.add(img.imagePublicId);
+      });
+    })
+  });
+
+  // 3. BATCH DELETE FROM CLOUDINARY
   const idsArray = [...publicIdsToDelete];
   if (idsArray.length > 0) {
     for (let i = 0; i < idsArray.length; i += 100) {
@@ -342,13 +359,15 @@ const deleteAccessory = asyncHandler(async (req, res) => {
     }
   }
 
+  // 4. DELETE ACCESSORY FROM DB
   await accessory.deleteOne();
 
+  // 5. CLEANUP USER WISHLIST + CART
   const accessoryId = new mongoose.Types.ObjectId(req.params.id);
   await User.updateMany({ wishlist: accessoryId }, { $pull: { wishlist: accessoryId } });
-  await User.updateMany({ 'cart.product': accessoryId }, { $pull: { cart: { product: accessoryId } }});
+  await User.updateMany({ 'cart.product': accessoryId }, { $pull: { cart: { product: accessoryId }}});
 
-  res.json({ message: 'Accessory and all images removed' });
+  res.json({ message: 'Accessory, variant images, and review images removed' });
 });
 
 // @desc    Create new review
