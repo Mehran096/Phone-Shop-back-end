@@ -15,7 +15,8 @@ const {
   getReplies,
   getReply,      
   updateReply,     
-  deleteReply 
+  deleteReply,
+  getAccessoryReviewImages 
 } = require('../controllers/accessoryReviewController.js');
 
 router.route('/').get(getAccessories).post(protect, admin, createAccessory);
@@ -23,6 +24,7 @@ router.route('/').get(getAccessories).post(protect, admin, createAccessory);
 router.route('/slug/:slug').get(getAccessoryBySlug);
 
 // REVIEW ROUTES
+router.route('/:slug/reviews/images').get(getAccessoryReviewImages);
 router.route('/slug/:slug/reviews').get(getAccessoryReviews).post(protect, createAccessoryReview);
 router.route('/slug/:slug/reviews/:reviewId').put(protect, updateAccessoryReview).delete(protect, deleteAccessoryReview);
 router.route('/slug/:slug/reviews/:reviewId/vote').put(protect, voteReview);

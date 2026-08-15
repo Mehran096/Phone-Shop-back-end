@@ -28,6 +28,7 @@ const reviewSchema = mongoose.Schema({
   }],
   
   replies: [{
+     _id: { type: mongoose.Schema.Types.ObjectId, auto: true },
     user: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
     name: { type: String, required: true },
     comment: { type: String, required: true },

@@ -47,19 +47,20 @@ const createAccessoryReview = asyncHandler(async (req, res) => {
     accessory.rating = accessory.reviews.reduce((acc, item) => item.rating + acc, 0) / accessory.reviews.length
 
     await accessory.save()
-    res.status(201).json({ message: 'Review added' })
+    const newReview = accessory.reviews[accessory.reviews.length - 1]
+    res.status(201).json(newReview)
   } else {
     res.status(404)
     throw new Error('Accessory not found')
   }
 })
 
-// @desc    Get all reviews for an accessory with filters
-// @route   GET /api/accessories/slug/:slug/reviews?page=1&limit=10&sort=helpful
-// @access  Public
+// @desc Get all reviews for an accessory with filters
+// @route GET /api/accessories/slug/:slug/reviews?page=1&limit=10&sort=helpful
+// @access Public
 const getAccessoryReviews = asyncHandler(async (req, res) => {
   const { slug } = req.params
-  const { page = 1, limit = 10, sort = 'newest', model = '', variant = '', rating = '', keyword = '' } = req.query
+  const { page = 1, limit = 10, sort = 'newest', model = '', variant = '', rating = '', keyword = '', hasPhotos = 'false' } = req.query
 
   const accessory = await Accessory.findOne({ slug }).select('reviews rating numReviews')
 
@@ -78,26 +79,43 @@ const getAccessoryReviews = asyncHandler(async (req, res) => {
     r.comment.toLowerCase().includes(keyword.toLowerCase()) || 
     r.title.toLowerCase().includes(keyword.toLowerCase())
   )
+  if (hasPhotos === 'true') reviews = reviews.filter(r => r.images && r.images.length > 0) // <-- ADD THIS
 
-  // 2. SORT
-  if (sort === 'newest') reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+  // 2. CALCULATE SUMMARY FROM FILTERED REVIEWS
+  const totalReviews = reviews.length
+  const avgRating = totalReviews > 0 
+   ? reviews.reduce((acc, item) => item.rating + acc, 0) / totalReviews 
+    : 0
+
+  const counts = [0, 0, 0, 0, 0, 0]
+  reviews.forEach(r => counts[r.rating]++)
+  const ratingBreakdown = {
+    5: counts[5],
+    4: counts[4], 
+    3: counts[3],
+    2: counts[2],
+    1: counts[1]
+  }
+
+  // 3. SORT
+  if (sort === 'newest') reviews.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
   if (sort === 'highest') reviews.sort((a, b) => b.rating - a.rating)
   if (sort === 'lowest') reviews.sort((a, b) => a.rating - b.rating)
   if (sort === 'helpful') reviews.sort((a, b) => (b.helpful?.length || 0) - (a.helpful?.length || 0))
   if (sort === 'notHelpful') reviews.sort((a, b) => (b.notHelpful?.length || 0) - (a.notHelpful?.length || 0))
 
-  // 3. PAGINATION
-  const totalReviews = reviews.length
+  // 4. PAGINATION
   const totalPages = Math.ceil(totalReviews / limit)
   const startIndex = (page - 1) * limit
-  const paginatedReviews = reviews.slice(startIndex, startIndex + limit)
+  const paginatedReviews = reviews.slice(startIndex, startIndex + Number(limit))
 
   res.json({
     reviews: paginatedReviews,
     page: Number(page),
     totalPages,
     totalReviews,
-    rating: accessory.rating,
+    rating: Number(avgRating.toFixed(1)),
+    ratingBreakdown,
     numReviews: accessory.numReviews
   })
 })
@@ -139,7 +157,8 @@ const updateAccessoryReview = asyncHandler(async (req, res) => {
     accessory.rating = accessory.reviews.reduce((acc, item) => item.rating + acc, 0) / accessory.reviews.length
     await accessory.save()
 
-    res.status(200).json({ message: 'Review updated' })
+   const updatedReview = accessory.reviews.id(reviewId)
+  res.status(200).json(updatedReview)
   } else {
     res.status(404)
     throw new Error('Accessory not found')
@@ -193,10 +212,10 @@ const deleteAccessoryReview = asyncHandler(async (req, res) => {
 // @access  Private
 const voteReview = asyncHandler(async (req, res) => {
   const { type } = req.body
-  const { slug, reviewId } = req.params // CHANGED
+  const { slug, reviewId } = req.params
   const userId = req.user._id
 
-  const accessory = await Accessory.findOne({ slug }) // CHANGED
+  const accessory = await Accessory.findOne({ slug })
   if (!accessory) return res.status(404).json({ message: 'Accessory not found' })
 
   const review = accessory.reviews.id(reviewId)
@@ -218,21 +237,30 @@ const voteReview = asyncHandler(async (req, res) => {
 
   const updatedAccessory = await Accessory.findOne({ slug })
   const updatedReview = updatedAccessory.reviews.id(reviewId)
-  res.json({ message: 'Feedback updated', review: { _id: updatedReview._id, helpful: updatedReview.helpful || [], notHelpful: updatedReview.notHelpful || [] } })
+  
+  res.json(updatedReview) // <-- RETURN FULL REVIEW OBJECT with createdAt, rating, etc
 })
 
 // REPLY CONTROLLERS - ALL CHANGED TO SLUG
 const replyToReview = asyncHandler(async (req, res) => {
   const { comment } = req.body
-  const { slug, reviewId } = req.params // CHANGED
+  const { slug, reviewId } = req.params
   if (!comment?.trim()) { res.status(400); throw new Error('Reply comment is required') }
-  const accessory = await Accessory.findOne({ slug }) // CHANGED
+  
+  const accessory = await Accessory.findOne({ slug })
   if (!accessory) { res.status(404); throw new Error('Accessory not found') }
+  
   const review = accessory.reviews.id(reviewId)
   if (!review) { res.status(404); throw new Error('Review not found') }
-  review.replies.push({ user: req.user._id, name: req.user.name, comment, createdAt: new Date() })
+  
+  const newReply = { user: req.user._id, name: req.user.name, comment, createdAt: new Date() }
+  review.replies.push(newReply)
   await accessory.save()
-  res.status(201).json({ message: 'Reply added', replies: review.replies })
+
+  const savedReview = await Accessory.findOne({ slug }) // refetch to get _id
+  const savedReply = savedReview.reviews.id(reviewId).replies[review.replies.length - 1]
+
+  res.status(201).json(savedReply) // <-- RETURN THE SINGLE REPLY OBJECT
 })
 
 const getReplies = asyncHandler(async (req, res) => {
@@ -257,18 +285,26 @@ const getReply = asyncHandler(async (req, res) => {
 
 const updateReply = asyncHandler(async (req, res) => {
   const { comment } = req.body
-  const { slug, reviewId, replyId } = req.params // CHANGED
+  const { slug, reviewId, replyId } = req.params
   if (!comment?.trim()) { res.status(400); throw new Error('Reply comment is required') }
-  const accessory = await Accessory.findOne({ slug }) // CHANGED
+  
+  const accessory = await Accessory.findOne({ slug })
   if (!accessory) { res.status(404); throw new Error('Accessory not found') }
+  
   const review = accessory.reviews.id(reviewId)
   if (!review) { res.status(404); throw new Error('Review not found') }
+  
   const reply = review.replies.id(replyId)
   if (!reply) { res.status(404); throw new Error('Reply not found') }
   if (reply.user.toString() !== req.user._id.toString() && !req.user.isAdmin) { res.status(401); throw new Error('Not authorized') }
+  
   reply.comment = comment
   await accessory.save()
-  res.json({ message: 'Reply updated', reply })
+  
+  const updatedAccessory = await Accessory.findOne({ slug })
+  const updatedReply = updatedAccessory.reviews.id(reviewId).replies.id(replyId) // <-- get the reply
+
+  res.json(updatedReply) // <-- RETURN ONLY THE REPLY OBJECT
 })
 
 const deleteReply = asyncHandler(async (req, res) => {
@@ -282,6 +318,33 @@ const deleteReply = asyncHandler(async (req, res) => {
   res.json({ message: 'Reply removed' })
 })
 
+// @desc    Get all review images for an accessory
+// @route   GET /api/accessories/:slug/reviews/images
+// @access  Public
+const getAccessoryReviewImages = asyncHandler(async (req, res) => {
+  const { slug } = req.params; // CHANGED: use slug
+
+  const accessory = await Accessory.findOne({ slug });
+  
+  if (!accessory) {
+    res.status(404);
+    throw new Error('Accessory not found');
+  }
+
+  // Flatten all images from all reviews
+  const allImages = accessory.reviews.flatMap(review => 
+    (review.images || []).map(img => ({
+      url: img.url,
+      reviewId: review._id,
+      user: review.name,
+      rating: review.rating,
+      createdAt: review.createdAt
+    }))
+  );
+
+  res.json(allImages);
+});
+
 module.exports = { 
   createAccessoryReview,
   getAccessoryReviews,
@@ -292,5 +355,6 @@ module.exports = {
   getReplies,
   getReply,        
   updateReply,      
-  deleteReply
+  deleteReply,
+  getAccessoryReviewImages,
 }
