@@ -135,35 +135,73 @@ const cleanModels = (models = []) => {
   })).filter(m => m.variants.length > 0);
 };
 
-// @desc    Fetch all accessories
-// @route   GET /api/accessories
-// @access  Public
+// @desc Fetch all accessories
+// @route GET /api/accessories
+// @access Public
 const getAccessories = asyncHandler(async (req, res) => {
-  const pageSize = 12;
+  const pageSize = Number(req.query.pageSize) || 12; 
   const page = Number(req.query.pageNumber) || 1;
+  
+  // Multi-word search
   const keyword = req.query.keyword
-    ? { name: { $regex: req.query.keyword, $options: 'i' }}
+ ? {
+      $and: req.query.keyword.trim().split(" ").filter(Boolean).map((word) => {
+        const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return {
+          $or: [
+            { name: { $regex: escapedWord, $options: "i" } },
+            { brand: { $regex: escapedWord, $options: "i" } },
+            { category: { $regex: escapedWord, $options: "i" } },
+            { accessoryType: { $regex: escapedWord, $options: "i" } },
+            { keywords: { $regex: escapedWord, $options: "i" } },
+            { "models.modelName": { $regex: escapedWord, $options: "i" } },
+          ],
+        };
+      }),
+    }
     : {};
-  const accessoryTypeFilter = req.query.accessoryType ? { accessoryType: req.query.accessoryType } : {};
-  const categoryFilter = req.query.category ? { category: req.query.category } : {};
 
-  const count = await Accessory.countDocuments({ ...keyword, ...accessoryTypeFilter, ...categoryFilter });
-  const accessories = await Accessory.find({ ...keyword, ...accessoryTypeFilter, ...categoryFilter })
-    .limit(pageSize)
-    .skip(pageSize * (page - 1))
-    .sort({ createdAt: -1 });
+  const accessoryTypeFilter = req.query.accessoryType? { accessoryType: req.query.accessoryType } : {};
+  const categoryFilter = req.query.category? { category: req.query.category } : {};
 
+  const count = await Accessory.countDocuments({...keyword,...accessoryTypeFilter,...categoryFilter });
+  const accessories = await Accessory.find({...keyword,...accessoryTypeFilter,...categoryFilter })
+ .limit(pageSize)
+ .skip(pageSize * (page - 1))
+ .sort({ createdAt: -1 });
+
+  // Safe processing - skips accessories with no variants
   const processedAccessories = accessories.map(acc => {
     const obj = acc.toObject();
-    obj.models = obj.models.map(model => ({
-      ...model,
-      variants: model.variants.map(v => processVariant(v, 1))
+    
+    obj.models = (obj.models || []).map(model => ({
+   ...model,
+      variants: (model.variants || []).map(v => processVariant(v, 1))
     }));
-    return obj;
-  });
 
-  res.json({ accessories: processedAccessories, page, pages: Math.ceil(count / pageSize) });
+    const firstModel = obj.models?.[0]
+    const firstVariant = firstModel?.variants?.[0]
+    
+    // Skip if no variant - prevents broken cards
+    if (!firstVariant) return null
+
+    return {
+   ...obj,
+      image: firstVariant.images?.[0]?.url || '/placeholder.png',
+      price: firstVariant.price || 0,
+      minPrice: firstVariant.price || 0,
+      slug: obj.slug,
+    }
+  }).filter(Boolean);
+
+  // Return same shape for both suggestion and full search
+  res.json({ 
+    accessories: processedAccessories, 
+    page, 
+    pages: Math.ceil(count / pageSize) 
+  });
 });
+
 
 // @desc    Fetch single accessory by ID
 // @route   GET /api/accessories/:id
@@ -219,7 +257,7 @@ const createAccessory = asyncHandler(async (req, res) => {
     name,
     brand,
     accessoryType,
-    category,
+    category, // <-- already here
     metaTitle,
     metaDescription,
     keywords = [],
@@ -247,10 +285,10 @@ const createAccessory = asyncHandler(async (req, res) => {
     slug: accessorySlug,
     brand,
     accessoryType,
-    category: category || accessoryType,
+    category: category?.trim() || accessoryType, // V37.87 KEY: trim + fallback
     metaTitle: metaTitle || `${name} | ${brand}`,
     metaDescription: metaDescription || `Buy ${name} from ${brand}.`,
-    keywords,
+    keywords: keywords.map(k => k.trim()).filter(Boolean),
     models: cleanModelsData,
   });
 
@@ -280,7 +318,7 @@ const updateAccessory = asyncHandler(async (req, res) => {
     throw new Error('Accessory not found');
   }
 
-  if (removedPublicIds && removedPublicIds.length > 0) {
+  if (removedPublicIds?.length > 0) {
     for (let i = 0; i < removedPublicIds.length; i += 100) {
       const batch = removedPublicIds.slice(i, i + 100);
       await cloudinary.api.delete_resources(batch);
@@ -292,8 +330,9 @@ const updateAccessory = asyncHandler(async (req, res) => {
   accessory.name = name || accessory.name;
   accessory.brand = brand || accessory.brand;
   accessory.accessoryType = accessoryType || accessory.accessoryType;
-  accessory.category = category || accessory.category;
-  if (keywords) accessory.keywords = keywords;
+  accessory.category = category?.trim() || accessory.category || accessoryType; // V37.87 KEY
+  
+  if (keywords) accessory.keywords = keywords.map(k => k.trim()).filter(Boolean);
   if (metaTitle) accessory.metaTitle = metaTitle.slice(0, 60);
   if (metaDescription) accessory.metaDescription = metaDescription.slice(0, 155);
 
@@ -405,6 +444,8 @@ const createAccessoryReview = asyncHandler(async (req, res) => {
   }
 });
 
+ 
+
 module.exports = {
   getAccessories,
   getAccessoryById,
@@ -413,4 +454,5 @@ module.exports = {
   updateAccessory,
   deleteAccessory,
   createAccessoryReview,
+  
 };

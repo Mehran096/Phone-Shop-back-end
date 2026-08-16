@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/auth.js');
 const { 
-  getAccessories, getAccessoryById, getAccessoryBySlug, createAccessory, updateAccessory, deleteAccessory 
+  getAccessories, getAccessoryById, getAccessoryBySlug, createAccessory, updateAccessory, deleteAccessory,
 } = require('../controllers/accessoryController.js');
 
 const { 
@@ -19,6 +19,8 @@ const {
   getAccessoryReviewImages 
 } = require('../controllers/accessoryReviewController.js');
 
+
+ 
 router.route('/').get(getAccessories).post(protect, admin, createAccessory);
 
 router.route('/slug/:slug').get(getAccessoryBySlug);
