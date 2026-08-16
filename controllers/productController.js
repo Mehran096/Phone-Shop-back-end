@@ -968,15 +968,12 @@ const deleteProduct = asyncHandler(async (req, res) => {
   }
 });
 
-// @route POST /api/products/:id/reviews
+// @route POST /api/products/:slug/reviews
 // @access Private
 const createProductReview = asyncHandler(async (req, res) => {
   const { rating, comment, color, storage, title, images } = req.body;
 
-  let product = await Product.findOne({ slug: req.params.id });
-  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-    product = await Product.findById(req.params.id);
-  }
+  const product = await Product.findOne({ slug: req.params.slug }); // <-- SLUG
 
   if (product) {
     const alreadyReviewed = product.reviews.find(
@@ -989,18 +986,12 @@ const createProductReview = asyncHandler(async (req, res) => {
       throw new Error('Product already reviewed for this color');
     }
 
-    // Check if user purchased this product
     const hasPurchased = await Order.findOne({
       user: req.user._id,
       isPaid: true,
-      orderItems: {
-        $elemMatch: {
-          product: product._id,
-        },
-      },
+      orderItems: { $elemMatch: { product: product._id } },
     });
 
-    // V38.12 KEY: CREATE REVIEW WITH IMAGES AS OBJECTS
     const review = {
       name: req.user.name || req.user.email?.split('@')[0] || 'User',
       rating: Number(rating),
@@ -1009,41 +1000,24 @@ const createProductReview = asyncHandler(async (req, res) => {
       user: req.user._id,
       color: color || 'Default',
       storage: storage || '',
-      verifiedPurchase: !!hasPurchased,
-      images: [], // V38.12 START EMPTY
+      verifiedPurchase:!!hasPurchased,
+      images: [],
     };
 
-    // V38.12 KEY: CONVERT IMAGES TO {url, imagePublicId} OBJECTS
     if (images && images.length > 0) {
       images.forEach((img) => {
-        // Case 1: Frontend sends full Cloudinary object { secure_url, public_id }
         if (typeof img === 'object' && img.secure_url && img.public_id) {
-          review.images.push({
-            url: img.secure_url,
-            imagePublicId: img.public_id,
-          });
-        }
-        // Case 2: Frontend sends {url, imagePublicId} already
-        else if (typeof img === 'object' && img.url && img.imagePublicId) {
-          review.images.push({
-            url: img.url,
-            imagePublicId: img.imagePublicId,
-          });
-        }
-        // Case 3: Frontend sends URL string only
-        else if (typeof img === 'string') {
-          review.images.push({
-            url: img,
-            imagePublicId: extractPublicId(img),
-          });
+          review.images.push({ url: img.secure_url, imagePublicId: img.public_id });
+        } else if (typeof img === 'object' && img.url && img.imagePublicId) {
+          review.images.push({ url: img.url, imagePublicId: img.imagePublicId });
+        } else if (typeof img === 'string') {
+          review.images.push({ url: img, imagePublicId: extractPublicId(img) });
         }
       });
     }
 
     product.reviews.push(review);
     product.numReviews = product.reviews.length;
-
-    // V38.12 KEY: Calculate rating for all reviews
     product.rating = product.reviews.reduce((acc, item) => item.rating + acc, 0) / product.reviews.length;
 
     await product.save();
@@ -1055,458 +1029,307 @@ const createProductReview = asyncHandler(async (req, res) => {
 });
 
 // @desc Get all reviews for a product
-// @route GET /api/products/:id/reviews
+// @route GET /api/products/:slug/reviews
 // @access Public
 const getProductReviews = asyncHandler(async (req, res) => {
   const page = Number(req.query.page) || 1;
   const limit = Number(req.query.limit) || 10;
   const skip = (page - 1) * limit;
-
   const { color, storage, sort, keyword, rating } = req.query;
 
-  let product = await Product.findOne({ slug: req.params.id });
-
-  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-    product = await Product.findById(req.params.id);
-  }
+  const product = await Product.findOne({ slug: req.params.slug });
 
   if (!product) {
     res.status(404);
     throw new Error("Product not found");
   }
 
+  // KEY 1: CALCULATE BREAKDOWN FROM ALL REVIEWS FIRST
+  const fullRatingBreakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+  product.reviews.forEach(r => {
+    fullRatingBreakdown[r.rating] = (fullRatingBreakdown[r.rating] || 0) + 1;
+  });
+
   let reviews = [...product.reviews];
 
-  // Filter by color
-  if (color && color !== "all") {
-    reviews = reviews.filter(
-      (review) => review.color === color
-    );
-  }
+  // FILTERS
+  if (color && color !== "all") reviews = reviews.filter((review) => review.color === color);
+  if (storage && storage !== 'all') reviews = reviews.filter((review) => review.storage === storage);
+  if (rating) reviews = reviews.filter((review) => review.rating === Number(rating));
 
-  // Filter by Storage
-  if (storage && storage !== 'all') {
-    reviews = reviews.filter(
-      (review) => review.storage === storage
-    );
-  }
-
-  //rating filter
-  if (rating) {
-    reviews = reviews.filter(
-      (review) => review.rating === Number(rating)
-    );
-  }
-
-  // Search reviews
   if (keyword && keyword.trim()) {
     const search = keyword.trim().toLowerCase();
-
-    reviews = reviews.filter((review) => {
-      return (
-        review.comment?.toLowerCase().includes(search) ||
-        review.title?.toLowerCase().includes(search) ||
-        review.name?.toLowerCase().includes(search)
-
-      );
-    });
+    reviews = reviews.filter((review) =>
+      review.comment?.toLowerCase().includes(search) ||
+      review.title?.toLowerCase().includes(search) ||
+      review.name?.toLowerCase().includes(search)
+    );
   }
 
-  // Convert to plain object and calculate vote counts
   reviews = reviews.map((review) => ({
-    ...review.toObject(),
+   ...review.toObject(),
     helpfulCount: review.helpful ? review.helpful.length : 0,
     notHelpfulCount: review.notHelpful ? review.notHelpful.length : 0,
   }));
 
-  // Sorting
+  // SORT
   switch (sort) {
-    case "highest":
-      reviews.sort((a, b) => b.rating - a.rating);
-      break;
-
-    case "lowest":
-      reviews.sort((a, b) => a.rating - b.rating);
-      break;
-
-    case "oldest":
-      reviews.sort(
-        (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
-      );
-      break;
-    case "helpful":
-      reviews.sort(
-        (a, b) => b.helpfulCount - a.helpfulCount
-      );
-      break;
-    case "notHelpful":
-      reviews.sort(
-        (a, b) => b.notHelpfulCount - a.notHelpfulCount
-      );
-      break;
-
-
-    default:
-      // newest
-      reviews.sort(
-        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-      );
+    case "highest": reviews.sort((a, b) => b.rating - a.rating); break;
+    case "lowest": reviews.sort((a, b) => a.rating - b.rating); break;
+    case "oldest": reviews.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)); break;
+    case "helpful": reviews.sort((a, b) => b.helpfulCount - a.helpfulCount); break;
+    case "notHelpful": reviews.sort((a, b) => b.notHelpfulCount - a.notHelpfulCount); break;
+    default: reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }
 
   const totalReviews = reviews.length;
   const totalPages = Math.ceil(totalReviews / limit);
-
   const paginatedReviews = reviews.slice(skip, skip + limit);
 
   res.json({
     reviews: paginatedReviews,
     page,
     totalPages,
-    totalReviews,
+    total: totalReviews,
     hasMore: page < totalPages,
     nextPage: page < totalPages ? page + 1 : null,
+    ratingBreakdown: fullRatingBreakdown, // KEY 2: SEND FULL BREAKDOWN
   });
 });
 
-// @desc    Update product review
-// @route   PUT /api/products/:id/reviews/:reviewId
-// @access  Private
+// @desc Update product review
+// @route PUT /api/products/:slug/reviews/:reviewId
+// @access Private
 const updateProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment, images, title } = req.body; // V33.31: images = [{url, imagePublicId}]
+  const { rating, comment, images, title } = req.body;
+  const product = await Product.findOne({ slug: req.params.slug }); // <-- SLUG
 
-  let product = await Product.findOne({ slug: req.params.id });
-  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-    product = await Product.findById(req.params.id);
+  if (!product) { res.status(404); throw new Error('Product not found'); }
+
+  const review = product.reviews.id(req.params.reviewId);
+  if (!review) { res.status(404); throw new Error('Review not found'); }
+
+  if (review.user.toString()!== req.user._id.toString() &&!req.user.isAdmin) {
+    res.status(401); throw new Error('Not authorized');
   }
 
-  if (!product) {
-    res.status(404);
-    throw new Error('Product not found');
-  }
-
-  const review = product.reviews.id(req.params.reviewId); // V33.31 KEY: Mongoose .id()
-  if (!review) {
-    res.status(404);
-    throw new Error('Review not found');
-  }
-
-  // Check if user owns this review
-  if (review.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-    res.status(401);
-    throw new Error('Not authorized');
-  }
-
-  // 1. Delete removed images from Cloudinary V33.31
-  const oldImages = review.images || []; // [{url, imagePublicId}]
-  const newImages = images || []; // [{url, imagePublicId}] from frontend
-
+  const oldImages = review.images || [];
+  const newImages = images || [];
   const publicIdsToDelete = oldImages
-    .filter(oldImg => !newImages.some(newImg => newImg.imagePublicId === oldImg.imagePublicId)) // V33.31 KEY
-    .map(img => img.imagePublicId)
-    .filter(Boolean);
+   .filter(oldImg =>!newImages.some(newImg => newImg.imagePublicId === oldImg.imagePublicId))
+   .map(img => img.imagePublicId).filter(Boolean);
 
   if (publicIdsToDelete.length > 0) {
-    try {
-      const result = await cloudinary.api.delete_resources(publicIdsToDelete); // Bulk delete
-      console.log('Cloudinary deleted:', publicIdsToDelete, result);
-    } catch (err) {
-      console.error('Cloudinary delete failed:', err);
-      // Don't throw - still update DB
-    }
+    try { await cloudinary.api.delete_resources(publicIdsToDelete); } 
+    catch (err) { console.error('Cloudinary delete failed:', err); }
   }
 
-  // 2. Update review fields V33.31
   review.rating = Number(rating) || review.rating;
   review.comment = comment || review.comment;
   review.title = title || review.title;
-  review.images = newImages; // V33.31 KEY: Direct replace. No imagePublicIds field
+  review.images = newImages;
 
-  // 3. Recalculate product rating V33.31
   product.numReviews = product.reviews.length;
-  product.rating =
-    product.reviews.length > 0
-      ? product.reviews.reduce((acc, r) => acc + r.rating, 0) / product.reviews.length
-      : 0;
+  product.rating = product.reviews.length > 0? product.reviews.reduce((acc, r) => acc + r.rating, 0) / product.reviews.length : 0;
 
   await product.save();
   res.json({ message: 'Review updated', review });
 });
 
-// @desc    Delete a product review + its images
-// @route   DELETE /api/products/:id/reviews/:reviewId
-// @access  Private
+// @desc Delete a product review + its images
+// @route DELETE /api/products/:slug/reviews/:reviewId
+// @access Private
 const deleteProductReview = asyncHandler(async (req, res) => {
-  let product = await Product.findOne({ slug: req.params.id });
-  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-    product = await Product.findById(req.params.id);
+  const product = await Product.findOne({ slug: req.params.slug }); // <-- SLUG
+  if (!product) { res.status(404); throw new Error('Product not found'); }
+
+  const review = product.reviews.find((r) => r._id.toString() === req.params.reviewId);
+  if (!review) { res.status(404); throw new Error('Review not found'); }
+
+  if (review.user.toString()!== req.user._id.toString() &&!req.user.isAdmin) {
+    res.status(401); throw new Error('Not authorized');
   }
 
-  if (!product) {
-    res.status(404);
-    throw new Error('Product not found');
-  }
-
-  // Find review by _id from URL params
-  const review = product.reviews.find(
-    (r) => r._id.toString() === req.params.reviewId
-  );
-
-  if (!review) {
-    res.status(404);
-    throw new Error('Review not found');
-  }
-
-  // Check if user owns the review or is admin
-  if (review.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-    res.status(401);
-    throw new Error('Not authorized');
-  }
-
-  // 1. Delete images from Cloudinary first V33.25
   const publicIdsToDelete = [];
   if (review.images?.length > 0) {
-    review.images.forEach(img => {
-      if (img.imagePublicId) publicIdsToDelete.push(img.imagePublicId); // V33.25 KEY
-    });
+    review.images.forEach(img => { if (img.imagePublicId) publicIdsToDelete.push(img.imagePublicId); });
   }
-
   if (publicIdsToDelete.length > 0) {
-    try {
-      const result = await cloudinary.api.delete_resources(publicIdsToDelete); // Bulk delete
-      console.log('Cloudinary delete result:', result);
-    } catch (err) {
-      console.error('Cloudinary delete failed:', err);
-      // Don't throw - still delete review from DB even if Cloudinary fails
-    }
+    try { await cloudinary.api.delete_resources(publicIdsToDelete); } 
+    catch (err) { console.error('Cloudinary delete failed:', err); }
   }
 
-  // 2. Remove review from product
-  product.reviews = product.reviews.filter(
-    (r) => r._id.toString() !== req.params.reviewId
-  );
-
-  // 3. Recalculate rating + numReviews
+  product.reviews = product.reviews.filter((r) => r._id.toString()!== req.params.reviewId);
   product.numReviews = product.reviews.length;
-  product.rating =
-    product.reviews.length > 0
-      ? product.reviews.reduce((acc, r) => acc + r.rating, 0) / product.reviews.length
-      : 0;
+  product.rating = product.reviews.length > 0? product.reviews.reduce((acc, r) => acc + r.rating, 0) / product.reviews.length : 0;
 
   await product.save();
   res.json({ message: 'Review removed' });
 });
 
-// @route PUT /api/products/:id/reviews/:reviewId/helpful
+// @route PUT /api/products/:slug/reviews/:reviewId/helpful
 // @access Private
 const markReviewHelpful = asyncHandler(async (req, res) => {
-  //const product = await Product.findById(req.params.id);
-  let product = await Product.findOne({ slug: req.params.id })
-  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-    product = await Product.findById(req.params.id)
-  }
+  const { slug, reviewId } = req.params;
+  const userId = req.user._id;
 
-  if (product) {
-    const review = product.reviews.id(req.params.reviewId);
+  const product = await Product.findOne({ slug, 'reviews._id': reviewId });
+  if (!product) { res.status(404); throw new Error('Product not found'); }
+  
+  const review = product.reviews.id(reviewId);
+  const hasHelpful = review.helpful.some(id => id.toString() === userId.toString());
+  const hasNotHelpful = review.notHelpful.some(id => id.toString() === userId.toString());
 
-    // Remove from Not Helpful if already voted
-    review.notHelpful = review.notHelpful.filter(
-      (u) => u.toString() !== req.user._id.toString()
-    );
-
-    if (!review) {
-      res.status(404);
-      throw new Error('Review not found');
-    }
-
-    const alreadyVoted = review.helpful.find(
-      (u) => u.toString() === req.user._id.toString()
-    );
-
-    if (alreadyVoted) {
-      // Unvote
-      review.helpful = review.helpful.filter(
-        (u) => u.toString() !== req.user._id.toString()
-      );
-    } else {
-      // Add vote
-      review.helpful.push(req.user._id);
-    }
-
-    await product.save();
-
-    // Return count + whether current user voted
-    res.status(200).json({
-      helpfulCount: review.helpful.length,
-      userVoted: !alreadyVoted
-    });
+  let update = {};
+  if (hasHelpful) {
+    update = { $pull: { 'reviews.$.helpful': userId } }; // remove vote
   } else {
-    res.status(404);
-    throw new Error('Product not found');
+    update = { 
+      $addToSet: { 'reviews.$.helpful': userId }, // add vote
+      $pull: { 'reviews.$.notHelpful': userId } // remove opposite
+    };
   }
+
+  await Product.updateOne({ _id: product._id, 'reviews._id': reviewId }, update);
+  const updatedProduct = await Product.findOne({ slug });
+  const updatedReview = updatedProduct.reviews.id(reviewId);
+
+  res.status(200).json({ 
+    helpfulCount: updatedReview.helpful.length, 
+    notHelpfulCount: updatedReview.notHelpful.length,
+    userVoted:!hasHelpful 
+  });
 });
 
-// @route PUT /api/products/:id/reviews/:reviewId/not-helpful
+// @route PUT /api/products/:slug/reviews/:reviewId/not-helpful
 // @access Private
 const markReviewNotHelpful = asyncHandler(async (req, res) => {
-  let product = await Product.findOne({ slug: req.params.id });
+  const { slug, reviewId } = req.params;
+  const userId = req.user._id;
 
-  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-    product = await Product.findById(req.params.id);
-  }
-
-  if (product) {
-    const review = product.reviews.id(req.params.reviewId);
-
-    if (!review) {
-      res.status(404);
-      throw new Error("Review not found");
-    }
-
-    // Remove from Helpful if already voted
-    review.helpful = review.helpful.filter(
-      (u) => u.toString() !== req.user._id.toString()
-    );
-
-    const alreadyVoted = review.notHelpful.find(
-      (u) => u.toString() === req.user._id.toString()
-    );
-
-    if (alreadyVoted) {
-      // Unvote
-      review.notHelpful = review.notHelpful.filter(
-        (u) => u.toString() !== req.user._id.toString()
-      );
-    } else {
-      // Add vote
-      review.notHelpful.push(req.user._id);
-    }
-
-    await product.save();
-
-    res.status(200).json({
-      helpfulCount: review.helpful.length,
-      notHelpfulCount: review.notHelpful.length,
-      userVoted: !alreadyVoted,
-    });
-  } else {
-    res.status(404);
-    throw new Error("Product not found");
-  }
-});
-
-// @route POST /api/products/:id/reviews/:reviewId/reply
-// @access Private/Admin
-const addAdminReply = asyncHandler(async (req, res) => {
-  const { reply: replyText } = req.body; // <-- Only get reply from body
-  //const product = await Product.findById(req.params.id); // productId from URL
-  let product = await Product.findOne({ slug: req.params.id })
-  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-    product = await Product.findById(req.params.id)
-  }
-  const reviewId = req.params.reviewId; // <-- Get reviewId from URL params
-
-  if (!product) {
-    res.status(404);
-    throw new Error('Product not found');
-  }
+  const product = await Product.findOne({ slug, 'reviews._id': reviewId });
+  if (!product) { res.status(404); throw new Error("Product not found"); }
 
   const review = product.reviews.id(reviewId);
+  const hasNotHelpful = review.notHelpful.some(id => id.toString() === userId.toString());
+  const hasHelpful = review.helpful.some(id => id.toString() === userId.toString());
 
-  if (!review) {
-    res.status(404);
-    throw new Error('Review not found');
+  let update = {};
+  if (hasNotHelpful) {
+    update = { $pull: { 'reviews.$.notHelpful': userId } };
+  } else {
+    update = { 
+      $addToSet: { 'reviews.$.notHelpful': userId },
+      $pull: { 'reviews.$.helpful': userId }
+    };
   }
 
-  review.adminReply = {
-    reply: replyText, // <-- Use 'reply' not 'text' to match frontend
-    name: req.user.name,
-    user: req.user._id,
-    createdAt: new Date(),
-  };
+  await Product.updateOne({ _id: product._id, 'reviews._id': reviewId }, update);
+  const updatedProduct = await Product.findOne({ slug });
+  const updatedReview = updatedProduct.reviews.id(reviewId);
 
-  await product.save();
+  res.status(200).json({ 
+    helpfulCount: updatedReview.helpful.length, 
+    notHelpfulCount: updatedReview.notHelpful.length, 
+    userVoted:!hasNotHelpful 
+  });
+});
+
+// Admin reply controllers
+const addAdminReply = asyncHandler(async (req, res) => {
+  const { slug, reviewId } = req.params;
+  const { reply: replyText } = req.body;
+
+  await Product.updateOne(
+    { slug, 'reviews._id': reviewId },
+    { $set: { 
+        'reviews.$.adminReply': { 
+          reply: replyText, 
+          name: req.user.name, 
+          user: req.user._id, 
+          createdAt: new Date() 
+        } 
+      } 
+    }
+  );
   res.status(201).json({ message: 'Reply added' });
 });
 
-// @route PUT /api/products/:id/reviews/:reviewId/reply
-// @access Private/Admin
 const editAdminReply = asyncHandler(async (req, res) => {
-  const { reply } = req.body; // <-- Only get reply from body
-  const reviewId = req.params.reviewId; // <-- Get from URL params
-  //const product = await Product.findById(req.params.id);
-  let product = await Product.findOne({ slug: req.params.id })
-  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-    product = await Product.findById(req.params.id)
-  }
+  const { slug, reviewId } = req.params;
+  const { reply } = req.body;
 
-  if (!product) {
-    res.status(404);
-    throw new Error('Product not found');
-  }
-
-  const review = product.reviews.id(reviewId);
-
-  if (!review || !review.adminReply) { // <-- Check adminReply exists
-    res.status(404);
-    throw new Error('Reply not found');
-  }
-
-  review.adminReply.reply = reply; // <-- Use 'reply' field
-  review.adminReply.repliedAt = Date.now();
-
-  await product.save();
+  await Product.updateOne(
+    { slug, 'reviews._id': reviewId, 'reviews.adminReply': { $exists: true } },
+    { $set: { 
+        'reviews.$.adminReply.reply': reply,
+        'reviews.$.adminReply.repliedAt': Date.now()
+      } 
+    }
+  );
   res.status(200).json({ message: 'Reply updated' });
 });
 
-// @desc Delete admin reply
-// @route DELETE /api/products/:id/reviews/:reviewId/reply
-// @access Private/Admin
 const deleteAdminReply = asyncHandler(async (req, res) => {
-  const reviewId = req.params.reviewId; // <-- Get from URL params, not body
-  //const product = await Product.findById(req.params.id);
-  let product = await Product.findOne({ slug: req.params.id })
-  if (!product && mongoose.Types.ObjectId.isValid(req.params.id)) {
-    product = await Product.findById(req.params.id)
-  }
+  const { slug, reviewId } = req.params;
+
+  await Product.updateOne(
+    { slug, 'reviews._id': reviewId },
+    { $unset: { 'reviews.$.adminReply': "" } }
+  );
+  res.json({ message: 'Reply deleted' });
+});
+
+// @desc    Get all review images for a product
+// @route   GET /api/products/slug/:slug/reviews/images
+// @access  Public
+const getProductReviewImages = asyncHandler(async (req, res) => {
+  const { slug } = req.params;
+
+  const product = await Product.findOne({ slug });
 
   if (!product) {
     res.status(404);
     throw new Error('Product not found');
   }
 
-  const review = product.reviews.id(reviewId);
+  // Flatten all images from all reviews
+  const allImages = product.reviews.flatMap(review =>
+    (review.images || []).map(img => ({
+      url: img.url,
+      imagePublicId: img.imagePublicId,
+      reviewId: review._id,
+      user: review.name,
+      rating: review.rating,
+      createdAt: review.createdAt,
+      color: review.color,
+      storage: review.storage,
+    }))
+  );
 
-  if (!review || !review.adminReply) {
-    res.status(404);
-    throw new Error('Review or reply not found');
-  }
-
-  review.adminReply = undefined; // <-- Delete the reply
-
-  await product.save();
-  res.json({ message: 'Reply deleted' });
+  res.json(allImages);
 });
 
 // @desc    Update product specs
 // @route   PUT /api/products/:id/specs
 // @access  Private/Admin
-const updateProductSpecs = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id)
+// const updateProductSpecs = asyncHandler(async (req, res) => {
+//   const product = await Product.findById(req.params.id)
 
-  if (product) {
-    // Fix: Default to empty object if specs is undefined
-    product.specs = {
-      ...(product.specs ? product.specs.toObject() : {}),
-      ...req.body.specs,
-    }
+//   if (product) {
+//     // Fix: Default to empty object if specs is undefined
+//     product.specs = {
+//       ...(product.specs ? product.specs.toObject() : {}),
+//       ...req.body.specs,
+//     }
 
-    const updatedProduct = await product.save()
-    res.json(updatedProduct)
-  } else {
-    res.status(404)
-    throw new Error('Product not found')
-  }
-})
+//     const updatedProduct = await product.save()
+//     res.json(updatedProduct)
+//   } else {
+//     res.status(404)
+//     throw new Error('Product not found')
+//   }
+// })
 
 
 
@@ -1526,12 +1349,13 @@ module.exports = {
   getRecommendedProducts,
   createProductReview,
   getProductReviews,
-  updateProductSpecs,
+  //updateProductSpecs,
   updateProductReview,
   deleteProductReview,
   markReviewHelpful,
   markReviewNotHelpful,
   addAdminReply,
   editAdminReply,
-  deleteAdminReply
+  deleteAdminReply,
+  getProductReviewImages,
 }

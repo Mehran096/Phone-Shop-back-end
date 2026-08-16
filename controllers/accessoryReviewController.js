@@ -55,9 +55,6 @@ const createAccessoryReview = asyncHandler(async (req, res) => {
   }
 })
 
-// @desc Get all reviews for an accessory with filters
-// @route GET /api/accessories/slug/:slug/reviews?page=1&limit=10&sort=helpful
-// @access Public
 const getAccessoryReviews = asyncHandler(async (req, res) => {
   const { slug } = req.params
   const { page = 1, limit = 10, sort = 'newest', model = '', variant = '', rating = '', keyword = '', hasPhotos = 'false' } = req.query
@@ -69,42 +66,41 @@ const getAccessoryReviews = asyncHandler(async (req, res) => {
     throw new Error('Accessory not found')
   }
 
+  // KEY 1: CALCULATE BREAKDOWN FROM ALL REVIEWS FIRST
+  const fullRatingBreakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+  accessory.reviews.forEach(r => {
+    fullRatingBreakdown[r.rating] = (fullRatingBreakdown[r.rating] || 0) + 1;
+  });
+  const fullTotalReviews = accessory.reviews.length
+  const fullAvgRating = fullTotalReviews > 0 
+   ? accessory.reviews.reduce((acc, item) => item.rating + acc, 0) / fullTotalReviews 
+    : 0
+
   let reviews = [...accessory.reviews]
 
   // 1. FILTER
   if (model) reviews = reviews.filter(r => r.model === model)
   if (variant) reviews = reviews.filter(r => r.variant === variant)
   if (rating) reviews = reviews.filter(r => r.rating === Number(rating))
-  if (keyword) reviews = reviews.filter(r => 
-    r.comment.toLowerCase().includes(keyword.toLowerCase()) || 
-    r.title.toLowerCase().includes(keyword.toLowerCase())
-  )
-  if (hasPhotos === 'true') reviews = reviews.filter(r => r.images && r.images.length > 0) // <-- ADD THIS
-
-  // 2. CALCULATE SUMMARY FROM FILTERED REVIEWS
-  const totalReviews = reviews.length
-  const avgRating = totalReviews > 0 
-   ? reviews.reduce((acc, item) => item.rating + acc, 0) / totalReviews 
-    : 0
-
-  const counts = [0, 0, 0, 0, 0, 0]
-  reviews.forEach(r => counts[r.rating]++)
-  const ratingBreakdown = {
-    5: counts[5],
-    4: counts[4], 
-    3: counts[3],
-    2: counts[2],
-    1: counts[1]
+  if (keyword) {
+    const search = keyword.toLowerCase()
+    reviews = reviews.filter(r => 
+      r.comment?.toLowerCase().includes(search) || 
+      r.title?.toLowerCase().includes(search) ||
+      r.name?.toLowerCase().includes(search)
+    )
   }
+  if (hasPhotos === 'true') reviews = reviews.filter(r => r.images && r.images.length > 0)
 
-  // 3. SORT
+  // 2. SORT
   if (sort === 'newest') reviews.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
   if (sort === 'highest') reviews.sort((a, b) => b.rating - a.rating)
   if (sort === 'lowest') reviews.sort((a, b) => a.rating - b.rating)
   if (sort === 'helpful') reviews.sort((a, b) => (b.helpful?.length || 0) - (a.helpful?.length || 0))
   if (sort === 'notHelpful') reviews.sort((a, b) => (b.notHelpful?.length || 0) - (a.notHelpful?.length || 0))
 
-  // 4. PAGINATION
+  // 3. PAGINATION
+  const totalReviews = reviews.length
   const totalPages = Math.ceil(totalReviews / limit)
   const startIndex = (page - 1) * limit
   const paginatedReviews = reviews.slice(startIndex, startIndex + Number(limit))
@@ -113,9 +109,9 @@ const getAccessoryReviews = asyncHandler(async (req, res) => {
     reviews: paginatedReviews,
     page: Number(page),
     totalPages,
-    totalReviews,
-    rating: Number(avgRating.toFixed(1)),
-    ratingBreakdown,
+    totalReviews, // this is filtered count
+    rating: Number(fullAvgRating.toFixed(1)), // this is full avg
+    ratingBreakdown: fullRatingBreakdown, // KEY 2: SEND FULL BREAKDOWN
     numReviews: accessory.numReviews
   })
 })
