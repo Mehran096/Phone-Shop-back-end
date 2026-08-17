@@ -6,7 +6,7 @@ const {
   compareProducts, getRecommendedProducts, getFrequentlyBoughtTogether, deleteProduct,
   createProductReview, getProductReviews, updateProductReview,
   deleteProductReview, markReviewHelpful, markReviewNotHelpful, addAdminReply,
-  editAdminReply, deleteAdminReply, getProductReviewImages
+  editAdminReply, deleteAdminReply, getProductReviewImages, getBrandMenuProducts
 } = require('../controllers/productController')
 
 const { protect, admin } = require('../middleware/auth.js')
@@ -18,6 +18,7 @@ router.get('/deals', getDealsProducts)
 router.get('/new-arrivals', getNewArrivalProducts)
 router.get('/compare', compareProducts)
 router.get('/dropdown', getProductsForDropdown)
+router.get('/brand-menu/:brand', getBrandMenuProducts)
 
 // 2. PUBLIC SLUG ROUTES
 router.route('/slug/:slug').get(getProductBySlug)

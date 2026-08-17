@@ -1310,6 +1310,43 @@ const getProductReviewImages = asyncHandler(async (req, res) => {
   res.json(allImages);
 });
 
+// @desc Get brand menu products with image + price
+// @route GET /api/products/brand-menu/:brand
+// @access Public
+const getBrandMenuProducts = asyncHandler(async (req, res) => {
+  const { brand } = req.params
+
+  const products = await Product.find({ brand: { $regex: brand, $options: 'i' } })
+  .select('name slug brand variants')
+  .sort({ createdAt: -1 })
+  .limit(6)
+
+  if (!products) {
+    return res.json([])
+  }
+
+  // Use same "FIRST COLOR" logic as getProducts
+  const productsWithCalc = products.map(p => {
+    const firstVariant = p.variants?.[0]
+    const firstColor = firstVariant?.colors?.[0] || { price: 0, images: [], discount: {} }
+
+    const { finalPrice, discountAmount, isActive } = calculateDiscount(firstColor.price, firstColor.discount)
+
+    return {
+      _id: p._id,
+      name: p.name,
+      slug: p.slug,
+      brand: p.brand,
+      image: firstColor.images?.[0]?.url || '/placeholder.png', // first image
+      price: Number(finalPrice.toFixed(2)), // discounted price
+      originalPrice: Number(firstColor.price.toFixed(2)),
+      discountPercent: isActive? firstColor.discount.value : 0,
+    }
+  })
+
+  res.json(productsWithCalc)
+})
+
 // @desc    Update product specs
 // @route   PUT /api/products/:id/specs
 // @access  Private/Admin
@@ -1358,4 +1395,5 @@ module.exports = {
   editAdminReply,
   deleteAdminReply,
   getProductReviewImages,
+  getBrandMenuProducts,
 }

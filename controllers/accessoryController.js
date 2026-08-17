@@ -161,11 +161,24 @@ const getAccessories = asyncHandler(async (req, res) => {
     }
     : {};
 
-  const accessoryTypeFilter = req.query.accessoryType? { accessoryType: req.query.accessoryType } : {};
-  const categoryFilter = req.query.category? { category: req.query.category } : {};
+    const type = req.query.type // "Case", "Charger", "Holder / Stand" - from navbar
+const brand = req.query.brand // "Apple" - from navbar
+ 
+let filter = {...keyword }
+ if (type && type!== 'accessory' && type!== '') {
+  // Escape regex special chars like / in "Holder / Stand"
+  const escapedType = type.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  filter.accessoryType = { $regex: `^${escapedType}$`, $options: 'i' }  
+}
+  //const categoryFilter = req.query.category? { category: req.query.category } : {};
 
-  const count = await Accessory.countDocuments({...keyword,...accessoryTypeFilter,...categoryFilter });
-  const accessories = await Accessory.find({...keyword,...accessoryTypeFilter,...categoryFilter })
+ // Filter by brand
+if (brand) {
+  filter.brand = { $regex: brand, $options: 'i' } // case insensitive
+}
+
+const count = await Accessory.countDocuments(filter);
+const accessories = await Accessory.find(filter)
  .limit(pageSize)
  .skip(pageSize * (page - 1))
  .sort({ createdAt: -1 });
@@ -201,6 +214,49 @@ const getAccessories = asyncHandler(async (req, res) => {
     pages: Math.ceil(count / pageSize) 
   });
 });
+
+// @desc    Get accessories by category
+// @route   GET /api/accessories/category/:categorySlug
+const getAccessoriesByCategory = asyncHandler(async (req, res) => {
+  const pageSize = 12
+  const page = Number(req.query.pageNumber) || 1
+  
+  // Convert slug to category name: "usb-cables" -> "USB-C Cables"
+  const slugToCategory = {
+    'iphone-cases': 'iPhone Cases',
+    'samsung-cases': 'Samsung Cases',
+    'google-pixel-cases': 'Google Pixel Cases',
+    'chargers': 'Chargers',
+    'fast-chargers': 'Fast Chargers 20W+',
+    'cables': 'Cables',
+    'usb-cables': 'USB-C Cables',
+    'lightning-cables': 'Lightning Cables',
+    'screen-protectors': 'Screen Protectors',
+    'audio-adapters': 'Audio Adapters',
+    'holders-stands': 'Holders / Stands',
+    'Accessories' : 'Accessories',
+    'other': 'Other',
+  }
+
+  const category = slugToCategory[req.params.categorySlug]
+  
+  if (!category) {
+    res.status(404)
+    throw new Error('Category not found')
+  }
+
+  const count = await Accessory.countDocuments({ category })
+  const accessories = await Accessory.find({ category })
+    .limit(pageSize)
+    .skip(pageSize * (page - 1))
+
+  res.json({ 
+    accessories, 
+    page, 
+    pages: Math.ceil(count / pageSize),
+    categoryName: category // send back for title
+  })
+})
 
 
 // @desc    Fetch single accessory by ID
@@ -454,5 +510,6 @@ module.exports = {
   updateAccessory,
   deleteAccessory,
   createAccessoryReview,
+  getAccessoriesByCategory
   
 };

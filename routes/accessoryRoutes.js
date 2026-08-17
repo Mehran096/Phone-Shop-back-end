@@ -2,7 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/auth.js');
 const { 
-  getAccessories, getAccessoryById, getAccessoryBySlug, createAccessory, updateAccessory, deleteAccessory,
+  getAccessories, 
+  getAccessoryById, 
+  getAccessoryBySlug, 
+  createAccessory, 
+  updateAccessory, 
+  deleteAccessory, 
+  getAccessoriesByCategory
 } = require('../controllers/accessoryController.js');
 
 const { 
@@ -22,6 +28,9 @@ const {
 
  
 router.route('/').get(getAccessories).post(protect, admin, createAccessory);
+
+// 2. ADD CATEGORY ROUTE HERE - Must be above /:id and /:slug
+router.route('/category/:categorySlug').get(getAccessoriesByCategory); 
 
 router.route('/slug/:slug').get(getAccessoryBySlug);
 
