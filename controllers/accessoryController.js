@@ -50,8 +50,7 @@ const processVariant = (variant, qty = 1) => {
 // HELPER: Auto calculate price + bulk before saving - Rule B
 const applyAccessoryDiscountCalc = (variant) => {
   if(!variant.discount?.isActive){
-    variant.price = Number(variant.originalPrice || 0)
-    variant.discountAmount = 0
+    variant.price = Number(variant.originalPrice || 0) 
     return
   }
 
@@ -65,23 +64,27 @@ const applyAccessoryDiscountCalc = (variant) => {
   } else if(discountType === 'fixed' && discountValue > 0){
     price = Number((original - discountValue).toFixed(2))
   }
+  
 
   const amount = Number((original - price).toFixed(2))
   
   variant.price = price
-  variant.discountAmount = amount // NEW
+   
   variant.discount.value = original > 0 ? Math.round((amount / original) * 100) : discountValue // NEW: sync %
 
-  // Bulk from ORIGINAL - Rule B
-  if(variant.bulkPricing?.length > 0){
-    variant.bulkPricing = variant.bulkPricing.map(tier => {
-      const tierPercent = Number(String(tier.discountLabel || '').replace('%','')) || 0
-      const bulkPrice = tierPercent > 0 
-        ? Number((original * (1 - tierPercent/100)).toFixed(2))
-        : price
-      return {...tier, price: bulkPrice }
-    })
-  }
+   
+    // Bulk WITH TOGGLE
+    if(variant.bulkPricing?.length > 0){
+      const basePrice = (variant.bulkBase || 'discounted') === 'original'? original : price // KEY LINE
+      
+      variant.bulkPricing = variant.bulkPricing.map(tier => {
+        const tierPercent = Number(String(tier.discountLabel || '').replace('%','')) || 0
+        const bulkPrice = tierPercent > 0 
+          ? Number((basePrice * (1 - tierPercent/100)).toFixed(2))
+          : basePrice
+        return {...tier, price: bulkPrice }
+      })
+    }
 }
 
 // HELPER: Clean models > variants structure - FOR SAVE
@@ -119,6 +122,7 @@ const cleanModels = (models = []) => {
             endDate: v.discount?.endDate || null,
             isActive: v.discount?.isActive || false,
           },
+          bulkBase: v.bulkBase || 'discounted',
           bulkPricing: (v.bulkPricing || []).map(b => ({
             qty: Number(b.qty),
             price: Number(b.price), // Will be overwritten by auto-calc
@@ -139,124 +143,139 @@ const cleanModels = (models = []) => {
 // @route GET /api/accessories
 // @access Public
 const getAccessories = asyncHandler(async (req, res) => {
-  const pageSize = Number(req.query.pageSize) || 12; 
+  const pageSize = Number(req.query.pageSize) || 12;
   const page = Number(req.query.pageNumber) || 1;
-  
-  // Multi-word search
+
   const keyword = req.query.keyword
  ? {
-      $and: req.query.keyword.trim().split(" ").filter(Boolean).map((word) => {
-        const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        return {
-          $or: [
-            { name: { $regex: escapedWord, $options: "i" } },
-            { brand: { $regex: escapedWord, $options: "i" } },
-            { category: { $regex: escapedWord, $options: "i" } },
-            { accessoryType: { $regex: escapedWord, $options: "i" } },
-            { keywords: { $regex: escapedWord, $options: "i" } },
-            { "models.modelName": { $regex: escapedWord, $options: "i" } },
-          ],
-        };
-      }),
-    }
+        $and: req.query.keyword.trim().split(" ").filter(Boolean).map((word) => {
+          const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          return {
+            $or: [
+              { name: { $regex: escapedWord, $options: "i" } },
+              { brand: { $regex: escapedWord, $options: "i" } },
+              { category: { $regex: escapedWord, $options: "i" } },
+              { accessoryType: { $regex: escapedWord, $options: "i" } },
+              { keywords: { $regex: escapedWord, $options: "i" } },
+              { "models.modelName": { $regex: escapedWord, $options: "i" } },
+            ],
+          };
+        }),
+      }
     : {};
 
-    const type = req.query.type // "Case", "Charger", "Holder / Stand" - from navbar
-const brand = req.query.brand // "Apple" - from navbar
- 
-let filter = {...keyword }
- if (type && type!== 'accessory' && type!== '') {
-  // Escape regex special chars like / in "Holder / Stand"
-  const escapedType = type.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  filter.accessoryType = { $regex: `^${escapedType}$`, $options: 'i' }  
-}
-  //const categoryFilter = req.query.category? { category: req.query.category } : {};
+  const type = req.query.type
+  const brand = req.query.brand
+  const filterParam = req.query.filter
 
- // Filter by brand
-if (brand) {
-  filter.brand = { $regex: brand, $options: 'i' } // case insensitive
-}
+  let matchQuery = {...keyword }
 
-const count = await Accessory.countDocuments(filter);
-const accessories = await Accessory.find(filter)
- .limit(pageSize)
- .skip(pageSize * (page - 1))
- .sort({ createdAt: -1 });
+  if (type && type!== 'accessory' && type!== '') {
+    const escapedType = type.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    matchQuery.accessoryType = { $regex: `^${escapedType}$`, $options: 'i' }
+  }
+  if (brand) {
+    matchQuery.brand = { $regex: brand, $options: 'i' }
+  }
 
-  // Safe processing - skips accessories with no variants
-  const processedAccessories = accessories.map(acc => {
-    const obj = acc.toObject();
+  let sortOption = { createdAt: -1 }
+  let accessories, count;
+
+  // V38.74.6: Deals uses aggregation WITHOUT destroying models array
+  if (filterParam === 'deal') {
+    matchQuery.models = {
+      $elemMatch: {
+        variants: {
+          $elemMatch: {
+            'discount.isActive': true,
+            'discount.value': { $gt: 0 } 
+          }
+        }
+      }
+    }
+
+    const pipeline = [
+      { $match: matchQuery },
+      // Calculate max discount without unwinding
+      { $addFields: { 
+          maxDiscount: { 
+            $max: {
+              $map: {
+                input: { 
+                  $reduce: { 
+                    input: "$models", 
+                    initialValue: [], 
+                    in: { $concatArrays: ["$$value", "$$this.variants"] } 
+                  } 
+                },
+                as: "v",
+                in: { $cond: [{ $and: ["$$v.discount.isActive", { $gt: ["$$v.discount.value", 0] }] }, "$$v.discount.value", 0] }
+              }
+            }
+          }
+        } 
+      },
+      { $sort: { maxDiscount: -1 } },
+      { $skip: pageSize * (page - 1) },
+      { $limit: pageSize }
+    ]
+    accessories = await Accessory.aggregate(pipeline)
+    count = await Accessory.countDocuments(matchQuery)
     
+  } else {
+    // Normal query for new/bestseller/all - keeps admin working
+    if (filterParam === 'new') {
+      const thirtyDaysAgo = new Date()
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+      matchQuery.createdAt = { $gte: thirtyDaysAgo }
+    }
+    if (filterParam === 'bestseller') {
+      sortOption = { allSales: -1 }
+    }
+
+    count = await Accessory.countDocuments(matchQuery);
+    accessories = await Accessory.find(matchQuery)
+   .limit(pageSize)
+   .skip(pageSize * (page - 1))
+   .sort(sortOption);
+  }
+
+  // One processing block for BOTH find and aggregate
+  const processedAccessories = accessories.map(acc => {
+    const obj = acc.toObject? acc.toObject() : acc
+
+    // Rebuild models and filter variants only for deals
     obj.models = (obj.models || []).map(model => ({
-   ...model,
-      variants: (model.variants || []).map(v => processVariant(v, 1))
-    }));
+    ...model,
+      variants: (model.variants || [])
+      .filter(v => filterParam!== 'deal' || (v.discount?.isActive && v.discount?.value > 0))
+      .map(v => processVariant(v, 1))
+    })).filter(m => m.variants.length > 0);
 
     const firstModel = obj.models?.[0]
     const firstVariant = firstModel?.variants?.[0]
-    
-    // Skip if no variant - prevents broken cards
-    if (!firstVariant) return null
+    if (!firstVariant && filterParam === 'deal') return null // remove if no deal variants
+    const bulkPrices = firstVariant.bulkPricing?.map(t => Number(t.price)).filter(Boolean) || []
+const lowestBulkPrice = bulkPrices.length > 0? Math.min(...bulkPrices) : firstVariant.displayPrice
 
     return {
-   ...obj,
-      image: firstVariant.images?.[0]?.url || '/placeholder.png',
-      price: firstVariant.price || 0,
-      minPrice: firstVariant.price || 0,
-      slug: obj.slug,
-    }
+...obj,
+  image: firstVariant?.images?.[0]?.url || '/placeholder.png',
+  price: lowestBulkPrice,  
+  minPrice: lowestBulkPrice, 
+  originalPrice: firstVariant?.originalPrice || 0, 
+  slug: obj.slug,
+}
   }).filter(Boolean);
 
-  // Return same shape for both suggestion and full search
-  res.json({ 
-    accessories: processedAccessories, 
-    page, 
-    pages: Math.ceil(count / pageSize) 
+  res.json({
+    accessories: processedAccessories,
+    page,
+    pages: Math.ceil(count / pageSize)
   });
 });
 
-// @desc    Get accessories by category
-// @route   GET /api/accessories/category/:categorySlug
-const getAccessoriesByCategory = asyncHandler(async (req, res) => {
-  const pageSize = 12
-  const page = Number(req.query.pageNumber) || 1
-  
-  // Convert slug to category name: "usb-cables" -> "USB-C Cables"
-  const slugToCategory = {
-    'iphone-cases': 'iPhone Cases',
-    'samsung-cases': 'Samsung Cases',
-    'google-pixel-cases': 'Google Pixel Cases',
-    'chargers': 'Chargers',
-    'fast-chargers': 'Fast Chargers 20W+',
-    'cables': 'Cables',
-    'usb-cables': 'USB-C Cables',
-    'lightning-cables': 'Lightning Cables',
-    'screen-protectors': 'Screen Protectors',
-    'audio-adapters': 'Audio Adapters',
-    'holders-stands': 'Holders / Stands',
-    'Accessories' : 'Accessories',
-    'other': 'Other',
-  }
-
-  const category = slugToCategory[req.params.categorySlug]
-  
-  if (!category) {
-    res.status(404)
-    throw new Error('Category not found')
-  }
-
-  const count = await Accessory.countDocuments({ category })
-  const accessories = await Accessory.find({ category })
-    .limit(pageSize)
-    .skip(pageSize * (page - 1))
-
-  res.json({ 
-    accessories, 
-    page, 
-    pages: Math.ceil(count / pageSize),
-    categoryName: category // send back for title
-  })
-})
+ 
 
 
 // @desc    Fetch single accessory by ID
@@ -509,7 +528,6 @@ module.exports = {
   createAccessory,
   updateAccessory,
   deleteAccessory,
-  createAccessoryReview,
-  getAccessoriesByCategory
+  createAccessoryReview, 
   
 };

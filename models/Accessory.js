@@ -79,6 +79,11 @@ const variantSchema = new mongoose.Schema({
   // Common commerce
   price: { type: Number, required: true, default: 0 },
   discount: discountSchema,
+   bulkBase: {
+    type: String,
+    enum: ['original', 'discounted'],
+    default: 'discounted' // Default = stack bulk on discount
+  },
   bulkPricing: [bulkPricingSchema], // NEW
   countInStock: { type: Number, required: true, default: 0 },
   images: [{

@@ -8,7 +8,7 @@ const {
   createAccessory, 
   updateAccessory, 
   deleteAccessory, 
-  getAccessoriesByCategory
+  //getAccessoriesByCategory
 } = require('../controllers/accessoryController.js');
 
 const { 
@@ -30,7 +30,7 @@ const {
 router.route('/').get(getAccessories).post(protect, admin, createAccessory);
 
 // 2. ADD CATEGORY ROUTE HERE - Must be above /:id and /:slug
-router.route('/category/:categorySlug').get(getAccessoriesByCategory); 
+//router.route('/category/:categorySlug').get(getAccessoriesByCategory); 
 
 router.route('/slug/:slug').get(getAccessoryBySlug);
 
