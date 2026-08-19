@@ -11,15 +11,10 @@ const calculateBulkPrice = require('../utils/bulkPriceHelper');
 // HELPER: Apply discount + bulk pricing to a variant - FOR DISPLAY ONLY
 const processVariant = (variant, qty = 1) => {
   const originalPrice = Number(variant.originalPrice) || 0;
-  const dbPrice = Number(variant.price) || 0; // This is already discounted from DB
+  const dbPrice = Number(variant.price) || 0;
 
-  // Find bulk tier from DB that we already saved
-  const appliedTier = (variant.bulkPricing || [])
-   .filter(t => qty >= Number(t.qty))
-   .sort((a, b) => Number(b.qty) - Number(a.qty))[0];
-
-  const pricePerItem = appliedTier? Number(appliedTier.price) : dbPrice;
-  const totalPrice = Number((pricePerItem * qty).toFixed(2));
+  // USE HELPER INSTEAD OF MANUAL CALC
+  const { pricePerItem, totalPrice, appliedTier } = calculateBulkPrice(dbPrice, qty, variant.bulkPricing);
 
   return {
     sku: variant.sku,
@@ -35,8 +30,8 @@ const processVariant = (variant, qty = 1) => {
     connectorType: variant.connectorType || '',
     audioBits: variant.audioBits || '',
 
-    originalPrice: originalPrice > dbPrice? originalPrice : null,
-    price: dbPrice, // DB price
+    originalPrice: originalPrice || null,
+    price: dbPrice, // DB price = tier 1 price
     displayPrice: pricePerItem, // Final price with bulk
     totalPrice: totalPrice,
     discount: variant.discount,
@@ -49,43 +44,36 @@ const processVariant = (variant, qty = 1) => {
 
 // HELPER: Auto calculate price + bulk before saving - Rule B
 const applyAccessoryDiscountCalc = (variant) => {
-  if(!variant.discount?.isActive){
-    variant.price = Number(variant.originalPrice || 0) 
-    return
-  }
-
   const original = Number(variant.originalPrice || 0)
-  const discountValue = Number(variant.discount.value || 0)
-  const discountType = variant.discount.type || 'percentage'
   
-  let price = original
-  if(discountType === 'percentage' && discountValue > 0){
-    price = Number((original * (1 - discountValue/100)).toFixed(2))
-  } else if(discountType === 'fixed' && discountValue > 0){
-    price = Number((original - discountValue).toFixed(2))
+  // STEP 1: USE discountHelper
+  const { isActive, discountAmount, finalPrice } = calculateDiscount(original, variant.discount);
+  
+  if(!isActive){
+    variant.price = original
+    variant.discount.value = 0
+  } else {
+    variant.price = finalPrice
+    variant.discount.value = original > 0? Math.round((discountAmount / original) * 100) : 0
   }
-  
 
-  const amount = Number((original - price).toFixed(2))
-  
-  variant.price = price
-   
-  variant.discount.value = original > 0 ? Math.round((amount / original) * 100) : discountValue // NEW: sync %
+  const basePrice = (variant.bulkBase || 'discounted') === 'original'? original : variant.price
 
-   
-    // Bulk WITH TOGGLE
-    if(variant.bulkPricing?.length > 0){
-      const basePrice = (variant.bulkBase || 'discounted') === 'original'? original : price // KEY LINE
+  // STEP 2: Auto calc bulk tiers
+  if(variant.bulkPricing?.length > 0){
+    variant.bulkPricing = variant.bulkPricing.map(tier => {
+      const label = String(tier.discountLabel || '');
+      const match = label.match(/(\d+(\.\d+)?)%/); 
+      const tierPercent = match? Number(match[1]) : 0;
       
-      variant.bulkPricing = variant.bulkPricing.map(tier => {
-        const tierPercent = Number(String(tier.discountLabel || '').replace('%','')) || 0
-        const bulkPrice = tierPercent > 0 
-          ? Number((basePrice * (1 - tierPercent/100)).toFixed(2))
-          : basePrice
-        return {...tier, price: bulkPrice }
-      })
-    }
+      const bulkPrice = tierPercent > 0 
+      ? Number((basePrice * (1 - tierPercent/100)).toFixed(2))
+        : basePrice
+      return {...tier, price: bulkPrice }
+    })
+  }
 }
+
 
 // HELPER: Clean models > variants structure - FOR SAVE
 const cleanModels = (models = []) => {
@@ -241,38 +229,42 @@ const getAccessories = asyncHandler(async (req, res) => {
   }
 
   // One processing block for BOTH find and aggregate
-  const processedAccessories = accessories.map(acc => {
-    const obj = acc.toObject? acc.toObject() : acc
+const processedAccessories = accessories.map(acc => {
+  const obj = acc.toObject? acc.toObject() : acc
 
-    // Rebuild models and filter variants only for deals
-    obj.models = (obj.models || []).map(model => ({
-    ...model,
-      variants: (model.variants || [])
-      .filter(v => filterParam!== 'deal' || (v.discount?.isActive && v.discount?.value > 0))
-      .map(v => processVariant(v, 1))
-    })).filter(m => m.variants.length > 0);
+  // Rebuild models and filter variants only for deals
+  obj.models = (obj.models || []).map(model => ({
+  ...model,
+    variants: (model.variants || [])
+    .filter(v => filterParam!== 'deal' || (v.discount?.isActive && v.discount?.value > 0))
+    .map(v => processVariant(v, 1))
+  })).filter(m => m.variants.length > 0);
 
-    const firstModel = obj.models?.[0]
-    const firstVariant = firstModel?.variants?.[0]
-    if (!firstVariant && filterParam === 'deal') return null // remove if no deal variants
-    const bulkPrices = firstVariant.bulkPricing?.map(t => Number(t.price)).filter(Boolean) || []
-const lowestBulkPrice = bulkPrices.length > 0? Math.min(...bulkPrices) : firstVariant.displayPrice
+  const firstModel = obj.models?.[0]
+  const firstVariant = firstModel?.variants?.[0]
+  if (!firstVariant && filterParam === 'deal') return null // remove if no deal variants
+  
+  const bulkPrices = firstVariant.bulkPricing?.map(t => Number(t.price)).filter(Boolean) || []
+  const lowestBulkPrice = bulkPrices.length > 0? Math.min(...bulkPrices) : firstVariant.price // fallback to discounted
+  const tier1Price = firstVariant.bulkPricing?.find(t => Number(t.qty) === 1)?.price 
+  || firstVariant.price; // fallback
+const discountedPrice = tier1Price // <-- MAIN PRICE = $8.49 now from tier 1
 
-    return {
-...obj,
-  image: firstVariant?.images?.[0]?.url || '/placeholder.png',
-  price: lowestBulkPrice,  
-  minPrice: lowestBulkPrice, 
-  originalPrice: firstVariant?.originalPrice || 0, 
-  slug: obj.slug,
-}
-  }).filter(Boolean);
+  return {
+    ...obj,
+    image: firstVariant?.images?.[0]?.url || '/placeholder.png',
+    price: discountedPrice,  // <-- MAIN PRICE = $8.49 now
+    minPrice: lowestBulkPrice, // <-- For "From $6.79" on listing cards
+    originalPrice: firstVariant?.originalPrice || 0, // <-- $9.99 strikethrough
+    slug: obj.slug,
+  }
+}).filter(Boolean);
 
-  res.json({
-    accessories: processedAccessories,
-    page,
-    pages: Math.ceil(count / pageSize)
-  });
+res.json({
+  accessories: processedAccessories,
+  page,
+  pages: Math.ceil(count / pageSize)
+});
 });
 
  
@@ -293,6 +285,20 @@ const getAccessoryById = asyncHandler(async (req, res) => {
       ...model,
       variants: (model.variants || []).map(v => processVariant(v, 1))
     }));
+
+    const firstModel = obj.models?.[0]
+    const firstVariant = firstModel?.variants?.[0]
+    
+    if(firstVariant){
+      const tier1Price = firstVariant.bulkPricing?.find(t => Number(t.qty) === 1)?.price 
+        || firstVariant.price;
+      const bulkPrices = firstVariant.bulkPricing?.map(t => Number(t.price)).filter(Boolean) || []
+      const lowestBulkPrice = bulkPrices.length > 0? Math.min(...bulkPrices) : firstVariant.price
+
+      obj.mainPrice = tier1Price // $8.49
+      obj.minPrice = lowestBulkPrice // $6.79
+      obj.price = tier1Price // overwrite for consistency
+    }
     
     res.json(obj);
   } else {
@@ -316,6 +322,20 @@ const getAccessoryBySlug = asyncHandler(async (req, res) => {
       ...model,
       variants: (model.variants || []).map(v => processVariant(v, 1))
     }));
+
+    const firstModel = obj.models?.[0]
+    const firstVariant = firstModel?.variants?.[0]
+    
+    if(firstVariant){
+      const tier1Price = firstVariant.bulkPricing?.find(t => Number(t.qty) === 1)?.price 
+        || firstVariant.price;
+      const bulkPrices = firstVariant.bulkPricing?.map(t => Number(t.price)).filter(Boolean) || []
+      const lowestBulkPrice = bulkPrices.length > 0? Math.min(...bulkPrices) : firstVariant.price
+
+      obj.mainPrice = tier1Price // $8.49
+      obj.minPrice = lowestBulkPrice // $6.79
+      obj.price = tier1Price // overwrite for consistency
+    }
     
     res.json(obj);
   } else {
