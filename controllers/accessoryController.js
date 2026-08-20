@@ -344,6 +344,43 @@ const getAccessoryBySlug = asyncHandler(async (req, res) => {
   }
 });
 
+// @desc Fetch featured accessory for navbar
+// @route GET /api/accessories/featured
+// @access Public
+const getFeaturedAccessory = asyncHandler(async (req, res) => {
+  const accessory = await Accessory.findOne({ featured: true })
+  .sort({ featuredPriority: 1, createdAt: -1 }); // priority 1 first, then newest
+
+  if (!accessory) {
+    return res.status(200).json(null); // return null instead of 404 so navbar doesn't break
+  }
+
+  const obj = accessory.toObject();
+
+  // Process models same as detail page
+  obj.models = (obj.models || []).map(model => ({
+  ...model,
+    variants: (model.variants || []).map(v => processVariant(v, 1))
+  }));
+
+  const firstModel = obj.models?.[0];
+  const firstVariant = firstModel?.variants?.[0];
+
+  if(firstVariant){
+    const tier1Price = firstVariant.bulkPricing?.find(t => Number(t.qty) === 1)?.price
+      || firstVariant.price;
+    const bulkPrices = firstVariant.bulkPricing?.map(t => Number(t.price)).filter(Boolean) || []
+    const lowestBulkPrice = bulkPrices.length > 0? Math.min(...bulkPrices) : firstVariant.price
+
+    obj.mainPrice = tier1Price; // $8.49
+    obj.minPrice = lowestBulkPrice; // $6.79
+    obj.price = tier1Price;
+    obj.image = firstVariant.images?.[0]?.url || '/placeholder.png';
+  }
+
+  res.json(obj);
+});
+
 // @desc    Create new accessory - ADMIN
 // @route   POST /api/accessories
 // @access  Private/Admin
@@ -404,6 +441,8 @@ const updateAccessory = asyncHandler(async (req, res) => {
     metaDescription,
     keywords,
     models,
+    featured,
+    featuredPriority,
     removedPublicIds = [],
   } = req.body;
 
@@ -439,6 +478,9 @@ const updateAccessory = asyncHandler(async (req, res) => {
     const baseSlug = slugify(name, { lower: true, strict: true });
     accessory.slug = `${baseSlug}-${Date.now()}`;
   }
+
+  if (typeof featured === 'boolean') accessory.featured = featured;
+  if (typeof featuredPriority === 'number') accessory.featuredPriority = featuredPriority;
 
   const updatedAccessory = await accessory.save();
   res.json(updatedAccessory);
@@ -504,40 +546,7 @@ const deleteAccessory = asyncHandler(async (req, res) => {
   res.json({ message: 'Accessory, variant images, and review images removed' });
 });
 
-// @desc    Create new review
-// @route   POST /api/accessories/:id/reviews
-// @access  Private
-const createAccessoryReview = asyncHandler(async (req, res) => {
-  const { rating, comment } = req.body;
-  const accessory = await Accessory.findById(req.params.id);
-
-  if (accessory) {
-    const alreadyReviewed = accessory.reviews.find(
-      (r) => r.user.toString() === req.user._id.toString()
-    );
-    if (alreadyReviewed) {
-      res.status(400);
-      throw new Error('Accessory already reviewed');
-    }
-
-    const review = {
-      name: req.user.name,
-      rating: Number(rating),
-      comment,
-      user: req.user._id,
-    };
-
-    accessory.reviews.push(review);
-    accessory.numReviews = accessory.reviews.length;
-    accessory.rating = accessory.reviews.reduce((acc, item) => item.rating + acc, 0) / accessory.reviews.length;
-
-    await accessory.save();
-    res.status(201).json({ message: 'Review added' });
-  } else {
-    res.status(404);
-    throw new Error('Accessory not found');
-  }
-});
+ 
 
  
 
@@ -545,9 +554,9 @@ module.exports = {
   getAccessories,
   getAccessoryById,
   getAccessoryBySlug,
+  getFeaturedAccessory,
   createAccessory,
   updateAccessory,
-  deleteAccessory,
-  createAccessoryReview, 
+  deleteAccessory, 
   
 };

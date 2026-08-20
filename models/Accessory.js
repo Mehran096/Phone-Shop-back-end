@@ -113,6 +113,9 @@ const accessorySchema = new mongoose.Schema({
     default: "case"
   },
 
+  featured: { type: Boolean, default: false }, // Toggle in admin
+  featuredPriority: { type: Number, default: 0 }, // 1 = highest priority
+
   category: { type: String, required: true }, // Keep for old data
 
   slug: { type: String, required: true, unique: true, lowercase: true, index: true },
