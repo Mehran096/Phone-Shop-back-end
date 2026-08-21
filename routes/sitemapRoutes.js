@@ -15,14 +15,14 @@ router.get('/sitemap.xml', async (req, res) => {
 
     const brandUrls = brands.filter(Boolean).map(b => `
   <url>
-    <loc>https://www.phone-store.asia/?brand=${encodeURIComponent(b)}</loc>
+    <loc>https://phone-store.asia/?brand=${encodeURIComponent(b)}</loc>
     <changefreq>daily</changefreq>
     <priority>0.7</priority>
   </url>`).join('')
 
     const productUrls = products.map(p => `
   <url>
-    <loc>https://www.phone-store.asia/product/${p.slug}</loc>
+    <loc>https://phone-store.asia/product/${p.slug}</loc>
     <lastmod>${p.updatedAt ? new Date(p.updatedAt).toISOString() : new Date().toISOString()}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -31,7 +31,7 @@ router.get('/sitemap.xml', async (req, res) => {
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://www.phone-store.asia</loc>
+    <loc>https://phone-store.asia</loc>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>${brandUrls}${productUrls}

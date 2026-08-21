@@ -305,12 +305,11 @@ Disallow: /login
 Disallow: /register
 Disallow: /profile
 Disallow: /orders
-Disallow: /admin
-Disallow: /products?*
+Disallow: /admin 
 Disallow: /*?sort=
 Disallow: /*?price=
 
-Sitemap: https://www.phone-store.asia/api/sitemap.xml
+Sitemap: https://phone-store.asia/api/sitemap.xml
 `);
 });
 
