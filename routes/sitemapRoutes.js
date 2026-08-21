@@ -15,7 +15,7 @@ router.get('/sitemap.xml', async (req, res) => {
 
     const brandUrls = brands.filter(Boolean).map(b => `
   <url>
-    <loc>https://phone-store.asia/?brand=${encodeURIComponent(b)}</loc>
+    <loc>https://phone-store.asia/products?brand=${encodeURIComponent(b)}</loc>
     <changefreq>daily</changefreq>
     <priority>0.7</priority>
   </url>`).join('')
