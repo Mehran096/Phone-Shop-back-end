@@ -486,6 +486,7 @@ const updateProduct = asyncHandler(async (req, res) => {
 // Best Sellers Products - FIRST Color Logic
 const getBestSellerProducts = asyncHandler(async (req, res) => {
   const products = await Product.find({})
+  .select('name slug brand category image rating numReviews variants allSales')
   .sort({ allSales: -1 })
    .limit(8);
 
@@ -611,7 +612,9 @@ const getDealsProducts = asyncHandler(async (req, res) => {
 // New Arrival Products - FIRST Color Logic
 const getNewArrivalProducts = asyncHandler(async (req, res) => {
   const products = await Product.find({})
-   .sort({ createdAt: -1 }).limit(8);
+  .select('name slug brand category image rating numReviews variants createdAt')
+  .sort({ createdAt: -1 })
+  .limit(8);
 
   // USE SAME "FIRST COLOR" LOGIC AS LATEST
   const productsWithCalc = products.map(p => {
@@ -1319,7 +1322,7 @@ const getBrandMenuProducts = asyncHandler(async (req, res) => {
   const products = await Product.find({ brand: { $regex: brand, $options: 'i' } })
   .select('name slug brand variants')
   .sort({ createdAt: -1 })
-  .limit(6)
+  .limit(8)
 
   if (!products) {
     return res.json([])
