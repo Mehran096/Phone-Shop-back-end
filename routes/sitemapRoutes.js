@@ -29,7 +29,7 @@ router.get('/sitemap.xml', async (req, res) => {
   </url>`).join('')
 
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="https://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://phone-store.asia</loc>
     <changefreq>daily</changefreq>
@@ -42,7 +42,7 @@ router.get('/sitemap.xml', async (req, res) => {
     // console.log('SENDING SITEMAP WITH PRODUCTS:', sitemap.includes('/product/'))
 
     res.header('Content-Type', 'application/xml')
-    res.header('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.header('Cache-Control', 'public, s-maxage=86400');
     res.send(sitemap)  // <-- ONLY THIS ONE
 
   } catch (err) {
