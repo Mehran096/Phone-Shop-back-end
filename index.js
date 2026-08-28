@@ -150,40 +150,57 @@ app.post('/api/orders/webhook', express.raw({type: 'application/json'}), async (
     }
   }
   
-  // 2. PAYMENT FAILED
-  else if (event.type === 'checkout.session.async_payment_failed' || event.type === 'payment_intent.payment_failed') {
-    const session = event.data.object
-    const orderId = session.metadata?.orderId
+  // 2. PAYMENT UPDATE or failed - Safe for Live + Local
+else if (event.type === 'checkout.session.async_payment_failed' || event.type === 'payment_intent.payment_failed') {
+  const session = event.data.object
+  const orderId = session.metadata?.orderId
+  
+  console.log('Payment update for orderId:', orderId)
+  
+  if (orderId) {
+    const order = await Order.findById(orderId).populate('user', 'name email')
     
-    console.log('Payment failed for orderId:', orderId)
-    
-    if (orderId) {
-      const order = await Order.findById(orderId).populate('user', 'name email')
+    if (order && order.user?.email) {
       
-      if (order && order.user?.email) {
+      const emailData = {
+        email: order.user.email,
+        subject: `Update on Order #${order._id.toString().slice(-6)}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#111827;line-height:1.6">
+            <h2 style="color:#111827;font-size:20px;margin:0 0 16px">Hi ${order.user.name},</h2>
+            <p>We weren't able to complete the payment for your order #${order._id.toString().slice(-6)}.</p>
+            <p>Sometimes banks decline a charge. You can easily retry your payment using the button below.</p>
+            
+            <a href="${process.env.FRONTEND_URL}/order/${order._id}"
+               style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:6px;margin:16px 0;font-weight:600">
+               Complete Your Order
+            </a>
+            
+            <p style="font-size:13px;color:#6b7280;margin-top:24px">
+              Need help? Just reply to this email and our team will assist you.
+            </p>
+            <p style="font-size:12px;color:#9ca3af">- Team PhoneStore</p>
+          </div>
+        `,
+      }
+
+      // RULE: Local me sirf log, Live me asal email
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('========== EMAIL PREVIEW - NOT SENT ==========')
+        console.log('To:', emailData.email)
+        console.log('Subject:', emailData.subject)
+        console.log('==============================================')
+      } else {
         try {
-          await sendEmail({
-            email: order.user.email,
-            subject: `Payment Failed - Order #${order._id.toString().slice(-6)}`,
-            html: `
-              <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
-                <h2>Payment Failed</h2>
-                <p>Hi ${order.user.name}, your payment for Order #${order._id.toString().slice(-6)} didn't go through.</p>
-                <p>This can happen if your bank declined the charge or there were insufficient funds.</p>
-                <a href="${process.env.FRONTEND_URL}/order/${order._id}"
-                   style="display:inline-block;background:#dc2626;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;margin-top:16px">
-                   Try Payment Again
-                </a>
-              </div>
-            `,
-          })
-          console.log('Payment failed email sent:', order.user.email)
+          await sendEmail(emailData)
+          console.log('Payment update email sent:', order.user.email)
         } catch (emailError) {
-          console.log('Failed payment email error:', emailError.message)
+          console.log('Payment update email error:', emailError.message)
         }
       }
     }
   }
+}
   
   // 3. REFUND PROCESSED
   else if (event.type === 'charge.refunded') {

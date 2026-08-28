@@ -1012,6 +1012,9 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     cancel_url: `${process.env.FRONTEND_URL}/cart`,
     customer_email: req.user.email,
     metadata: { orderId: order._id.toString() },
+    payment_intent_data: {
+      metadata: { orderId: order._id.toString() }
+    }
   })
 
   res.json({ url: session.url })

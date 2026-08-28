@@ -7,14 +7,22 @@ const sendEmail = async (options) => {
     to: options.email,
     subject: options.subject,
     html: options.html,
+    tags: [
+      { name: 'category', value: 'transactional' } 
+    ],
+    headers: {
+      'List-Unsubscribe': `<mailto:support@phone-store.asia>`,  
+      'X-Entity-Ref-ID': `order-${Date.now()}` 
+    }
   });
 
   if (error) {
     console.log('Resend error:', error);
     throw new Error(error.message);
   }
-  
+
   console.log('Message sent: %s', data.id);
+  return data;
 };
 
 module.exports = sendEmail;
