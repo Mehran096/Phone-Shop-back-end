@@ -1168,6 +1168,65 @@ router.get('/verify-session/:sessionId', protect, asyncHandler(async (req, res) 
   }
 }))
 
+// @desc    Create new Stripe checkout session for unpaid order
+// @route   POST /api/orders/:id/retry-payment  
+// @access  Private
+router.post('/:id/retry-payment', protect, asyncHandler(async (req, res) => {
+  const order = await Order.findById(req.params.id).populate('user', 'name email');
+
+  if (!order) {
+    res.status(404);
+    throw new Error('Order not found');
+  }
+
+  // Check if order belongs to logged in user
+  if (order.user._id.toString() !== req.user._id.toString()) {
+    res.status(401);
+    throw new Error('Not authorized');
+  }
+
+  // Agar pehle se paid hai to error
+  if (order.isPaid) {
+    res.status(400);
+    throw new Error('Order is already paid');
+  }
+
+  // COD orders ko block karo - sirf Stripe
+  if (order.paymentMethod !== 'Stripe') {
+    res.status(400);
+    throw new Error('This order is not a Stripe order');
+  }
+
+  // Stripe line items banao DB se
+  const line_items = order.orderItems.map(item => ({
+    price_data: {
+      currency: order.currency.toLowerCase() || 'usd',
+      product_data: {
+        name: `${item.name} ${item.model ? `for ${item.model}` : ''} (${item.color} ${item.storage || item.variantSubName || ''})`,
+        images: [item.image.startsWith('http') ? item.image : `${process.env.FRONTEND_URL}${item.image}`],
+      },
+      unit_amount: Math.round(item.price * 100),
+    },
+    quantity: item.qty,
+  }));
+
+  // Naya Stripe session banao
+  const session = await stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
+    line_items,
+    mode: 'payment',
+    success_url: `${process.env.FRONTEND_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.FRONTEND_URL}/order/${order._id}`,
+    customer_email: order.user.email,
+    metadata: { orderId: order._id.toString() },
+    payment_intent_data: {
+      metadata: { orderId: order._id.toString() }
+    }
+  });
+
+  res.json({ url: session.url });
+}));
+
 
 
 module.exports = router;
