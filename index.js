@@ -310,25 +310,25 @@ app.get('/', (req, res) => {
 });
 
 // Add this robots.txt route HERE
-app.get('/robots.txt', (req, res) => {
-  res.type('text/plain');
-  res.send(`User-agent: *
-Allow: /
+// app.get('/robots.txt', (req, res) => {
+//   res.type('text/plain');
+//   res.send(`User-agent: *
+// Allow: /
 
-Disallow: /cart
-Disallow: /checkout
-Disallow: /payment
-Disallow: /login
-Disallow: /register
-Disallow: /profile
-Disallow: /orders
-Disallow: /admin 
-Disallow: /*?sort=
-Disallow: /*?price=
+// Disallow: /cart
+// Disallow: /checkout
+// Disallow: /payment
+// Disallow: /login
+// Disallow: /register
+// Disallow: /profile
+// Disallow: /orders
+// Disallow: /admin 
+// Disallow: /*?sort=
+// Disallow: /*?price=
 
-Sitemap: https://phone-store.asia/api/sitemap.xml
-`);
-});
+// Sitemap: https://phone-store.asia/api/sitemap.xml
+// `);
+// });
 
 app.use(cookieParser());
 app.use(compression())
@@ -341,7 +341,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/contact', contactRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/upload', uploadRoutes);
-app.use('/api', sitemapRoutes)
+//app.use('/api', sitemapRoutes)
 app.use(express.static('public', { maxAge: '1y' }))
 
 // Error handling middleware - must be last
