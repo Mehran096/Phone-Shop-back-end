@@ -483,45 +483,68 @@ const updateProduct = asyncHandler(async (req, res) => {
   res.json(updatedProduct);
 });
 
-// Best Sellers Products - FIRST Color Logic
+// @desc Get Best Seller Products
+// @route GET /api/products/bestsellers
+// @access Public
 const getBestSellerProducts = asyncHandler(async (req, res) => {
+  const limit = Number(req.query.limit) || 12; // <-- Deals jesa
   const products = await Product.find({})
-  .select('name slug brand category image rating numReviews variants allSales')
-  .sort({ allSales: -1 })
-   .limit(8);
+ .select('name slug brand category image rating numReviews variants allSales')
+ .sort({ allSales: -1 })
+  .limit(limit);
 
-  // USE SAME "FIRST COLOR" LOGIC AS LATEST + NEW ARRIVALS
+  // USE SAME "BEST DISCOUNT VARIANT" LOGIC AS DEALS
   const productsWithCalc = products.map(p => {
-    const allColors = p.variants?.flatMap(v => v.colors) || [];
-    const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()];
+    let bestVariant = null;
+    let bestColor = null;
+    let maxDiscount = 0;
 
-    // 1. TAKE FIRST COLOR OF FIRST VARIANT
-    const firstVariant = p.variants?.[0];
-    const firstColor = firstVariant?.colors?.[0] || { price: 0, countInStock: 0, discount: {} };
+    // Find color with max discount
+    p.variants?.forEach((variant) => {
+      variant.colors?.forEach((color) => {
+        const discountValid =
+          color.discount &&
+          color.discount.value > 0 &&
+          (!color.discount.endDate || new Date(color.discount.endDate) >= new Date());
 
-    // 2. CALCULATE DISCOUNT ONLY IF FIRST COLOR HAS IT
-    const { finalPrice, discountAmount, isActive } = calculateDiscount(firstColor.price, firstColor.discount);
+        if (discountValid && color.discount.value > maxDiscount) {
+          maxDiscount = color.discount.value;
+          bestVariant = variant;
+          bestColor = color;
+        }
+      });
+    });
 
-    const originalPrice = Number(firstColor.price || 0);
-    const discountPercent = isActive? firstColor.discount.value : 0;
-    const price = finalPrice;
-    const youSave = discountAmount;
+    // If no discount, take first color
+    if (!bestColor) {
+      bestVariant = p.variants?.[0];
+      bestColor = bestVariant?.colors?.[0] || { price: 0, countInStock: 0, discount: {} };
+    }
+
+    const { finalPrice, discountAmount, isActive } = calculateDiscount(bestColor.price, bestColor.discount);
+
+    const originalPrice = Number(bestColor.price || 0);
+    const discountPercent = isActive? bestColor.discount.value : 0;
 
     return {
- ...p.toObject(),
-      minPrice: Number(price.toFixed(2)),
+     ...p.toObject(),
+      image: bestColor?.images?.[0]?.url || bestVariant?.images?.[0]?.url || p.image,
+      minPrice: Number(finalPrice.toFixed(2)),
       originalPrice: Number(originalPrice.toFixed(2)),
       discountPercent,
-      youSave: Number(youSave.toFixed(2)),
-      minStock: firstColor.countInStock,
-      colors: uniqueColors,
-      // FOR COMPATIBILITY
-      price: Number(price.toFixed(2)),
+      youSave: Number(discountAmount.toFixed(2)),
+      minStock: bestColor.countInStock,
+      colors: [...new Map(p.variants?.flatMap(v => v.colors) || [].map(c => [c.name, c])).values()],
+      // FOR COMPATIBILITY WITH Product.jsx
+      price: Number(finalPrice.toFixed(2)),
       bestDiscount: discountPercent,
+      defaultStorage: bestVariant?.storage,
+      defaultColor: bestColor?.name,
+      endDate: bestColor?.discount?.endDate,
     }
   });
 
-  res.json(productsWithCalc); // return array
+  res.json(productsWithCalc); // return array like deals
 });
 
 // @desc Get Deals & Discounts Products
@@ -609,45 +632,69 @@ const getDealsProducts = asyncHandler(async (req, res) => {
   });
 });
 
-// New Arrival Products - FIRST Color Logic
+// @desc Get New Arrival Products
+// @route GET /api/products/newarrivals
+// @access Public
 const getNewArrivalProducts = asyncHandler(async (req, res) => {
+  const limit = Number(req.query.limit) || 12;
+
   const products = await Product.find({})
-  .select('name slug brand category image rating numReviews variants createdAt')
-  .sort({ createdAt: -1 })
-  .limit(8);
+ .select('name slug brand category image rating numReviews variants createdAt')
+ .sort({ createdAt: -1 })
+ .limit(limit); 
 
-  // USE SAME "FIRST COLOR" LOGIC AS LATEST
+  // USE SAME "BEST DISCOUNT VARIANT" LOGIC AS DEALS
   const productsWithCalc = products.map(p => {
-    const allColors = p.variants?.flatMap(v => v.colors) || [];
-    const uniqueColors = [...new Map(allColors.map(c => [c.name, c])).values()];
+    let bestVariant = null;
+    let bestColor = null;
+    let maxDiscount = 0;
 
-    // 1. TAKE FIRST COLOR OF FIRST VARIANT
-    const firstVariant = p.variants?.[0];
-    const firstColor = firstVariant?.colors?.[0] || { price: 0, countInStock: 0, discount: {} };
+    // Find color with max discount
+    p.variants?.forEach((variant) => {
+      variant.colors?.forEach((color) => {
+        const discountValid =
+          color.discount &&
+          color.discount.value > 0 &&
+          (!color.discount.endDate || new Date(color.discount.endDate) >= new Date());
 
-    // 2. CALCULATE DISCOUNT ONLY IF FIRST COLOR HAS IT
-    const { finalPrice, discountAmount, isActive } = calculateDiscount(firstColor.price, firstColor.discount);
+        if (discountValid && color.discount.value > maxDiscount) {
+          maxDiscount = color.discount.value;
+          bestVariant = variant;
+          bestColor = color;
+        }
+      });
+    });
 
-    const originalPrice = Number(firstColor.price || 0);
-    const discountPercent = isActive? firstColor.discount.value : 0;
-    const price = finalPrice;
-    const youSave = discountAmount;
+    // If no discount, take first color
+    if (!bestColor) {
+      bestVariant = p.variants?.[0];
+      bestColor = bestVariant?.colors?.[0] || { price: 0, countInStock: 0, discount: {} };
+    }
+
+    const { finalPrice, discountAmount, isActive } = calculateDiscount(bestColor.price, bestColor.discount);
+
+    const originalPrice = Number(bestColor.price || 0);
+    const discountPercent = isActive? bestColor.discount.value : 0;
 
     return {
-  ...p.toObject(),
-      minPrice: Number(price.toFixed(2)),
+     ...p.toObject(),
+      image: bestColor?.images?.[0]?.url || bestVariant?.images?.[0]?.url || p.image,
+      minPrice: Number(finalPrice.toFixed(2)),
       originalPrice: Number(originalPrice.toFixed(2)),
       discountPercent,
-      youSave: Number(youSave.toFixed(2)),
-      minStock: firstColor.countInStock,
-      colors: uniqueColors,
+      youSave: Number(discountAmount.toFixed(2)),
+      minStock: bestColor.countInStock,
+      colors: [...new Map(p.variants?.flatMap(v => v.colors) || [].map(c => [c.name, c])).values()],
       // FOR COMPATIBILITY
-      price: Number(price.toFixed(2)),
+      price: Number(finalPrice.toFixed(2)),
       bestDiscount: discountPercent,
+      defaultStorage: bestVariant?.storage,
+      defaultColor: bestColor?.name,
+      endDate: bestColor?.discount?.endDate,
     }
   });
 
-  res.json(productsWithCalc); // return array, not raw products
+  res.json(productsWithCalc); // return array
 });
 
 // @desc Get recommended products

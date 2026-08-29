@@ -131,11 +131,12 @@ const cleanModels = (models = []) => {
 // @route GET /api/accessories
 // @access Public
 const getAccessories = asyncHandler(async (req, res) => {
-  const pageSize = Number(req.query.pageSize) || 12;
+  const pageSize = Number(req.query.pageSize) || 8;
   const page = Number(req.query.pageNumber) || 1;
+  const limit = Number(req.query.limit) || 0; // NEW: for home page
 
   const keyword = req.query.keyword
- ? {
+   ? {
         $and: req.query.keyword.trim().split(" ").filter(Boolean).map((word) => {
           const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           return {
@@ -152,119 +153,140 @@ const getAccessories = asyncHandler(async (req, res) => {
       }
     : {};
 
-  const type = req.query.type
-  const brand = req.query.brand
-  const filterParam = req.query.filter
+  const type = req.query.type;
+  const brand = req.query.brand;
+  const filterParam = req.query.filter;
 
-  let matchQuery = {...keyword }
+  let matchQuery = {...keyword };
 
-  if (type && type!== 'accessory' && type!== '') {
-    const escapedType = type.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    matchQuery.accessoryType = { $regex: `^${escapedType}$`, $options: 'i' }
+  if (type && type!== "accessory" && type!== "") {
+    const escapedType = type.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    matchQuery.accessoryType = { $regex: `^${escapedType}$`, $options: "i" };
   }
   if (brand) {
-    matchQuery.brand = { $regex: brand, $options: 'i' }
+    matchQuery.brand = { $regex: brand, $options: "i" };
   }
 
-  let sortOption = { createdAt: -1 }
+  let sortOption = { createdAt: -1 };
   let accessories, count;
 
-  // V38.74.6: Deals uses aggregation WITHOUT destroying models array
-  if (filterParam === 'deal') {
-    matchQuery.models = {
-      $elemMatch: {
-        variants: {
-          $elemMatch: {
-            'discount.isActive': true,
-            'discount.value': { $gt: 0 } 
-          }
-        }
-      }
-    }
+  count = await Accessory.countDocuments(matchQuery);
 
-    const pipeline = [
-      { $match: matchQuery },
-      // Calculate max discount without unwinding
-      { $addFields: { 
-          maxDiscount: { 
-            $max: {
-              $map: {
-                input: { 
-                  $reduce: { 
-                    input: "$models", 
-                    initialValue: [], 
-                    in: { $concatArrays: ["$$value", "$$this.variants"] } 
-                  } 
-                },
-                as: "v",
-                in: { $cond: [{ $and: ["$$v.discount.isActive", { $gt: ["$$v.discount.value", 0] }] }, "$$v.discount.value", 0] }
-              }
-            }
-          }
-        } 
-      },
-      { $sort: { maxDiscount: -1 } },
-      { $skip: pageSize * (page - 1) },
-      { $limit: pageSize }
-    ]
-    accessories = await Accessory.aggregate(pipeline)
-    count = await Accessory.countDocuments(matchQuery)
-    
+  // NEW: If limit is set, ignore pagination. Used for home page
+  if (limit > 0) {
+    if (filterParam === "deal") {
+      matchQuery.models = {
+        $elemMatch: {
+          variants: {
+            $elemMatch: { "discount.isActive": true, "discount.value": { $gt: 0 } },
+          },
+        },
+      };
+    }
+    accessories = await Accessory.find(matchQuery).limit(limit).sort(sortOption);
   } else {
-    // Normal query for new/bestseller/all - keeps admin working
-    if (filterParam === 'new') {
-      const thirtyDaysAgo = new Date()
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-      matchQuery.createdAt = { $gte: thirtyDaysAgo }
-    }
-    if (filterParam === 'bestseller') {
-      sortOption = { allSales: -1 }
-    }
+    // Normal pagination logic
+    if (filterParam === "deal") {
+      matchQuery.models = {
+        $elemMatch: {
+          variants: {
+            $elemMatch: { "discount.isActive": true, "discount.value": { $gt: 0 } },
+          },
+        },
+      };
 
-    count = await Accessory.countDocuments(matchQuery);
-    accessories = await Accessory.find(matchQuery)
-   .limit(pageSize)
-   .skip(pageSize * (page - 1))
-   .sort(sortOption);
+      const pipeline = [
+        { $match: matchQuery },
+        {
+          $addFields: {
+            maxDiscount: {
+              $max: {
+                $map: {
+                  input: {
+                    $reduce: {
+                      input: "$models",
+                      initialValue: [],
+                      in: { $concatArrays: ["$$value", "$$this.variants"] },
+                    },
+                  },
+                  as: "v",
+                  in: {
+                    $cond: [
+                      { $and: ["$$v.discount.isActive", { $gt: ["$$v.discount.value", 0] }] },
+                      "$$v.discount.value",
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        { $sort: { maxDiscount: -1 } },
+        { $skip: pageSize * (page - 1) },
+        { $limit: pageSize },
+      ];
+      accessories = await Accessory.aggregate(pipeline);
+    } else {
+      if (filterParam === "new") {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        matchQuery.createdAt = { $gte: thirtyDaysAgo };
+      }
+      if (filterParam === "bestseller") {
+        sortOption = { allSales: -1 };
+      }
+
+      accessories = await Accessory.find(matchQuery)
+       .limit(pageSize)
+       .skip(pageSize * (page - 1))
+       .sort(sortOption);
+    }
   }
 
   // One processing block for BOTH find and aggregate
-const processedAccessories = accessories.map(acc => {
-  const obj = acc.toObject? acc.toObject() : acc
+  const processedAccessories = accessories
+   .map((acc) => {
+      const obj = acc.toObject? acc.toObject() : acc;
 
-  // Rebuild models and filter variants only for deals
-  obj.models = (obj.models || []).map(model => ({
-  ...model,
-    variants: (model.variants || [])
-    .filter(v => filterParam!== 'deal' || (v.discount?.isActive && v.discount?.value > 0))
-    .map(v => processVariant(v, 1))
-  })).filter(m => m.variants.length > 0);
+      obj.models = (obj.models || [])
+       .map((model) => ({
+         ...model,
+          variants: (model.variants || [])
+           .filter(
+              (v) =>
+                filterParam!== "deal" || (v.discount?.isActive && v.discount?.value > 0)
+            )
+           .map((v) => processVariant(v, 1)),
+        }))
+       .filter((m) => m.variants.length > 0);
 
-  const firstModel = obj.models?.[0]
-  const firstVariant = firstModel?.variants?.[0]
-  if (!firstVariant && filterParam === 'deal') return null // remove if no deal variants
-  
-  const bulkPrices = firstVariant.bulkPricing?.map(t => Number(t.price)).filter(Boolean) || []
-  const lowestBulkPrice = bulkPrices.length > 0? Math.min(...bulkPrices) : firstVariant.price // fallback to discounted
-  const tier1Price = firstVariant.bulkPricing?.find(t => Number(t.qty) === 1)?.price 
-  || firstVariant.price; // fallback
-const discountedPrice = tier1Price // <-- MAIN PRICE = $8.49 now from tier 1
+      const firstModel = obj.models?.[0];
+      const firstVariant = firstModel?.variants?.[0];
+      if (!firstVariant && filterParam === "deal") return null;
 
-  return {
-    ...obj,
-    image: firstVariant?.images?.[0]?.url || '/placeholder.png',
-    price: discountedPrice,  // <-- MAIN PRICE = $8.49 now
-    minPrice: lowestBulkPrice, // <-- For "From $6.79" on listing cards
-    originalPrice: firstVariant?.originalPrice || 0, // <-- $9.99 strikethrough
-    slug: obj.slug,
-  }
-}).filter(Boolean);
+      const bulkPrices = firstVariant.bulkPricing?.map((t) => Number(t.price)).filter(Boolean) || [];
+      const lowestBulkPrice = bulkPrices.length > 0? Math.min(...bulkPrices) : firstVariant.price;
+      const tier1Price = firstVariant.bulkPricing?.find((t) => Number(t.qty) === 1)?.price || firstVariant.price;
+      const discountedPrice = tier1Price;
 
-res.json({
-  accessories: processedAccessories,
-  page,
-  pages: Math.ceil(count / pageSize)
-});
+      return {
+       ...obj,
+        image: firstVariant?.images?.[0]?.url || "/placeholder.png",
+        price: discountedPrice,
+        minPrice: lowestBulkPrice,
+        originalPrice: firstVariant?.originalPrice || 0,
+        slug: obj.slug,
+      };
+    })
+   .filter(Boolean);
+
+  res.json({
+    accessories: processedAccessories,
+    page,
+    pages: Math.ceil(count / pageSize),
+    total: count, // added for pagination component
+  });
 });
 
  

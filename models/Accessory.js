@@ -143,7 +143,16 @@ accessorySchema.pre('save', function () {
   if (!this.slug && this.name) {
     this.slug = `${slugify(this.name, { lower: true, strict: true })}-${Date.now()}`;
   }
+  // AUTO SEO
+  if (!this.metaTitle) {
+    this.metaTitle = `${this.name} - Buy ${this.brand} ${this.accessoryType} Online`;
+  }
+  if (!this.metaDescription) {
+    this.metaDescription = `Shop ${this.name} by ${this.brand}. Best price, fast delivery. ${this.accessoryType} with warranty.`;
+  }
 });
+
+accessorySchema.index({ name: 'text', brand: 'text', keywords: 'text', category: 'text', accessoryType: 'text' });
 
 const Accessory = mongoose.model('Accessory', accessorySchema);
 module.exports = Accessory;
