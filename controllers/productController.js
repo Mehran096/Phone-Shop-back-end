@@ -127,9 +127,10 @@ const getProducts = asyncHandler(async (req, res) => {
   const pageSize = Number(req.query.pageSize) || 8;
   const page = Number(req.query.pageNumber) || 1;
 
-  const { keyword, brand, category, minPrice, maxPrice, storage } = req.query;
+  const { keyword, brand, category, minPrice, maxPrice, storage, isLatest, limit } = req.query;
 
   const isSuggestions = req.query.suggestions === 'true';
+   const finalLimit = Number(limit) || pageSize;
 
   // 1. Search Filter: V9.51 KEY = variants.storage + variants.colors.name
   const searchFilter = keyword
@@ -198,6 +199,12 @@ const storageFilter = storage
       : {};
 
   const filter = { ...searchFilter, ...brandFilter, ...categoryFilter, ...storageFilter, ...priceFilter };
+  
+ // SORT LOGIC - NEW
+  let sortOption = { createdAt: -1 }; // default latest first
+  if (isLatest === 'true') {
+    sortOption = { createdAt: -1 }; // Latest phones
+  }
 
   const count = isSuggestions
   ? 0
@@ -207,9 +214,9 @@ const storageFilter = storage
   const products = await Product.find(filter)
     .populate('accessories', 'name slug price image type') // FBT
     .select('name slug brand category image rating numReviews variants metaTitle') // V9.51 KEY: No specs
-    .limit(pageSize)
-    .skip(pageSize * (page - 1))
-    .sort({ createdAt: -1 });
+    .limit(finalLimit)
+    .skip(finalLimit * (page - 1))
+    .sort(sortOption); 
 
   // 4. Frontend helper: FIRST Color + FIRST Price from DB
 const productsWithCalc = products.map(p => {
@@ -244,7 +251,7 @@ const productsWithCalc = products.map(p => {
 
 if (isSuggestions) return res.json(productsWithCalc);
 
-res.json({ products: productsWithCalc, page, pages: Math.ceil(count / pageSize) });
+res.json({ products: productsWithCalc, page, pages: Math.ceil(count / finalLimit) });
 });
 
 // @desc    Get products for dropdown - lightweight/only for compatible-accessories

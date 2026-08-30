@@ -134,9 +134,10 @@ const getAccessories = asyncHandler(async (req, res) => {
   const pageSize = Number(req.query.pageSize) || 8;
   const page = Number(req.query.pageNumber) || 1;
   const limit = Number(req.query.limit) || 0; // NEW: for home page
+  const finalLimit = limit > 0? limit : pageSize; // <-- KEY
 
   const keyword = req.query.keyword
-   ? {
+  ? {
         $and: req.query.keyword.trim().split(" ").filter(Boolean).map((word) => {
           const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           return {
@@ -167,34 +168,29 @@ const getAccessories = asyncHandler(async (req, res) => {
     matchQuery.brand = { $regex: brand, $options: "i" };
   }
 
+  // ===== KEY FIX 1: DEALS FILTER KO COUNT SE PEHLE LAGAO =====
+  if (filterParam === "deal") {
+    matchQuery.models = {
+      $elemMatch: {
+        variants: {
+          $elemMatch: { "discount.isActive": true, "discount.value": { $gt: 0 } },
+        },
+      },
+    };
+  }
+
   let sortOption = { createdAt: -1 };
   let accessories, count;
 
+  // AB COUNT SAHI AAYEGA
   count = await Accessory.countDocuments(matchQuery);
 
   // NEW: If limit is set, ignore pagination. Used for home page
   if (limit > 0) {
-    if (filterParam === "deal") {
-      matchQuery.models = {
-        $elemMatch: {
-          variants: {
-            $elemMatch: { "discount.isActive": true, "discount.value": { $gt: 0 } },
-          },
-        },
-      };
-    }
-    accessories = await Accessory.find(matchQuery).limit(limit).sort(sortOption);
+    accessories = await Accessory.find(matchQuery).limit(finalLimit).sort(sortOption);
   } else {
     // Normal pagination logic
     if (filterParam === "deal") {
-      matchQuery.models = {
-        $elemMatch: {
-          variants: {
-            $elemMatch: { "discount.isActive": true, "discount.value": { $gt: 0 } },
-          },
-        },
-      };
-
       const pipeline = [
         { $match: matchQuery },
         {
@@ -223,8 +219,8 @@ const getAccessories = asyncHandler(async (req, res) => {
           },
         },
         { $sort: { maxDiscount: -1 } },
-        { $skip: pageSize * (page - 1) },
-        { $limit: pageSize },
+        { $skip: finalLimit * (page - 1) }, // <-- finalLimit
+        { $limit: finalLimit }, // <-- finalLimit
       ];
       accessories = await Accessory.aggregate(pipeline);
     } else {
@@ -238,28 +234,28 @@ const getAccessories = asyncHandler(async (req, res) => {
       }
 
       accessories = await Accessory.find(matchQuery)
-       .limit(pageSize)
-       .skip(pageSize * (page - 1))
-       .sort(sortOption);
+      .limit(finalLimit) // <-- finalLimit
+      .skip(finalLimit * (page - 1)) // <-- finalLimit
+      .sort(sortOption);
     }
   }
 
   // One processing block for BOTH find and aggregate
   const processedAccessories = accessories
-   .map((acc) => {
+  .map((acc) => {
       const obj = acc.toObject? acc.toObject() : acc;
 
       obj.models = (obj.models || [])
-       .map((model) => ({
-         ...model,
+      .map((model) => ({
+        ...model,
           variants: (model.variants || [])
-           .filter(
+          .filter(
               (v) =>
                 filterParam!== "deal" || (v.discount?.isActive && v.discount?.value > 0)
             )
-           .map((v) => processVariant(v, 1)),
+          .map((v) => processVariant(v, 1)),
         }))
-       .filter((m) => m.variants.length > 0);
+      .filter((m) => m.variants.length > 0);
 
       const firstModel = obj.models?.[0];
       const firstVariant = firstModel?.variants?.[0];
@@ -271,7 +267,7 @@ const getAccessories = asyncHandler(async (req, res) => {
       const discountedPrice = tier1Price;
 
       return {
-       ...obj,
+      ...obj,
         image: firstVariant?.images?.[0]?.url || "/placeholder.png",
         price: discountedPrice,
         minPrice: lowestBulkPrice,
@@ -279,13 +275,14 @@ const getAccessories = asyncHandler(async (req, res) => {
         slug: obj.slug,
       };
     })
-   .filter(Boolean);
+  .filter(Boolean);
 
+  // ===== KEY FIX 2: finalLimit use karo =====
   res.json({
     accessories: processedAccessories,
     page,
-    pages: Math.ceil(count / pageSize),
-    total: count, // added for pagination component
+    pages: Math.ceil(count / finalLimit), // <-- finalLimit
+    total: count,
   });
 });
 
