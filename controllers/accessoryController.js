@@ -404,6 +404,14 @@ const getFeaturedAccessory = asyncHandler(async (req, res) => {
 // @route   POST /api/accessories
 // @access  Private/Admin
 const createAccessory = asyncHandler(async (req, res) => {
+
+//admin check for demo account -start
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com';
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' });
+  }
+//admin check for demo account -end
+
   const {
     name,
     brand,
@@ -451,6 +459,14 @@ const createAccessory = asyncHandler(async (req, res) => {
 // @route   PUT /api/accessories/:id
 // @access  Private/Admin
 const updateAccessory = asyncHandler(async (req, res) => {
+
+  //admin check for demo account -start
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com';
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' });
+  }
+//admin check for demo account -end
+
   const {
     name,
     brand,
@@ -509,10 +525,13 @@ const updateAccessory = asyncHandler(async (req, res) => {
 // @route   DELETE /api/accessories/:id
 // @access  Private/Admin
 const deleteAccessory = asyncHandler(async (req, res) => {
+  
+ //admin check for demo account -start
   const isDemoAdmin = req.user.email === 'demo@phonestore.com';
   if (isDemoAdmin) {
     return res.status(403).json({ message: 'Demo accounts have read-only access.' });
   }
+//admin check for demo account -end
 
   const accessory = await Accessory.findById(req.params.id);
   if (!accessory) {

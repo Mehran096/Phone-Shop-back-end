@@ -363,6 +363,13 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
 // @route   PUT /api/orders/:id/markasShipped
 // @access  Private/Admin
 router.put('/:id/markasShipped', protect, admin, asyncHandler(async (req, res) => {
+
+// DEMO BLOCK
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' })
+  }
+
   const { trackingNumber, carrier } = req.body
 
   const order = await Order.findById(req.params.id).populate('user', 'name email')
@@ -437,6 +444,14 @@ router.put('/:id/markasShipped', protect, admin, asyncHandler(async (req, res) =
 // @route   PUT /api/orders/:id/markasdelivered
 // @access  Private/Admin
 router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res) => {
+
+  // DEMO BLOCK
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' })
+  }
+
+
   const order = await Order.findById(req.params.id).populate('user', 'name email')
 
   if (!order) {
@@ -696,6 +711,13 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
 // @route   PUT /api/orders/:id/cancel
 // @access  Private/Admin
 router.put('/:id/cancel', protect, admin, asyncHandler(async (req, res) => {
+
+// DEMO BLOCK
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com'
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' })
+  }
+
   const { cancelReason, cancelCode } = req.body || {}
 
   const order = await Order.findById(req.params.id).populate('user', 'name email')

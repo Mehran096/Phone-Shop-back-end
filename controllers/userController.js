@@ -130,6 +130,12 @@ const getUserCart = asyncHandler(async (req, res) => {
 // @route   POST /api/users/cart  
 // @access  Private
 const saveUserCart = asyncHandler(async (req, res) => {
+
+   const isDemoAdmin = req.user.email === 'demo@phonestore.com';
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' });
+  }
+
   const user = await User.findById(req.user._id)
 
   if (user) {
@@ -177,6 +183,10 @@ const forgotPassword = asyncHandler(async (req, res) => {
     // Security: Don't reveal if email exists. Send same response.
     return res.status(200).json({ message: 'Email sent if account exists' })
   }
+
+  if (user.email === 'demo@phonestore.com') {
+  return res.status(200).json({ message: 'Email sent if account exists' })
+}
 
   // Get reset token
   const resetToken = user.getResetPasswordToken()
@@ -235,6 +245,12 @@ const resetPassword = asyncHandler(async (req, res) => {
   if (!user) {
     res.status(400)
     throw new Error('Invalid or expired token')
+  }
+
+  // DEMO BLOCK
+  if (user.email === 'demo@phonestore.com') {
+    res.status(403)
+    throw new Error('Demo accounts cannot change password')
   }
 
   // Set new password

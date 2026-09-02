@@ -21,6 +21,11 @@ const { cloudinary } = require('../utils/cloudinary')
 // @route POST /api/products
 // @access Private/Admin
 const createProduct = asyncHandler(async (req, res) => {
+
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com';
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' });
+  }
   //console.log('V9.47 BODY RECEIVED:', JSON.stringify(req.body, null, 2)); // Debug
 
   const {
@@ -393,6 +398,12 @@ const getProductById = asyncHandler(async (req, res) => {
 // @route   PUT /api/products/:id
 // @access  Private/Admin
 const updateProduct = asyncHandler(async (req, res) => {
+
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com';
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' });
+  }
+
   const {
     _id, // KEY: get from body not params
     name,
