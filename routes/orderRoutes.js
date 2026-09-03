@@ -603,47 +603,48 @@ router.put('/:id/markasdelivered', protect, admin, asyncHandler(async (req, res)
 // @access  Private/Admin
 router.get('/', protect, admin, asyncHandler(async (req, res) => {
   const pageSize = 10
-  const page = Number(req.query.pageNumber) || 1
+  const pageNumber = Number(req.query.pageNumber) || 1
   const keyword = req.query.keyword || ''
-
+  const cancelCode = req.query.cancelCode || 'ALL'
   let query = {}
 
+  // 1. Keyword search
   if (keyword) {
-    // Check if keyword is valid ObjectId for _id search
     const isValidObjectId = mongoose.Types.ObjectId.isValid(keyword)
-
-    // Find users matching the keyword first
     const users = await User.find({
       name: { $regex: keyword, $options: 'i' }
     }).select('_id')
-
     const userIds = users.map(user => user._id)
 
-    query = {
-      $or: [
-        { user: { $in: userIds } }, // Search by user if name matches
-        ...(isValidObjectId ? [{ _id: keyword }] : []) // Search by _id only if it's a valid ObjectId
-      ]
-    }
+    query.$or = [
+      { user: { $in: userIds } },
+      ...(isValidObjectId ? [{ _id: keyword }] : [])
+    ]
   }
 
+  // 2. CancelCode filter 
+if (cancelCode && cancelCode !== 'ALL') {
+  if (cancelCode === 'ACTIVE') {
+    query.isCancelled = false
+  } else if (cancelCode === 'CANCELLED') {
+    query.isCancelled = true
+  } else {
+    query.isCancelled = true 
+    query.cancelCode = cancelCode 
+  }
+}
+
+  // Dono count aur find me same query use hogi
   const count = await Order.countDocuments(query)
 
   const orders = await Order.find(query)
     .populate('user', 'id name email')
-    .populate({
-      path: 'orderItems.product',
-      select: 'name image'
-    })
-    .populate({
-      path: 'orderItems.accessory',
-      select: 'name image'
-    })
+    .populate({ path: 'orderItems.product', select: 'name image' })
+    .populate({ path: 'orderItems.accessory', select: 'name image' })
     .limit(pageSize)
-    .skip(pageSize * (page - 1))
+    .skip(pageSize * (pageNumber - 1))
     .sort({ createdAt: -1 })
 
-  // Merge populated data so frontend gets name/image even if product was deleted
   const safeOrders = orders.map(order => ({
     ...order.toObject(),
     orderItems: order.orderItems.map(item => {
@@ -657,7 +658,7 @@ router.get('/', protect, admin, asyncHandler(async (req, res) => {
     })
   }))
 
-  res.json({ orders: safeOrders, page, pages: Math.ceil(count / pageSize) })
+  res.json({ orders: safeOrders, page: pageNumber, pages: Math.ceil(count / pageSize) })
 }))
 
 
