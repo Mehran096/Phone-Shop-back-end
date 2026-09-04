@@ -4,19 +4,27 @@ const calculateDiscount = require('../utils/discountHelper.js')
 
 const getWishlist = asyncHandler(async (req, res) => {
   const wishlist = await Wishlist.findOne({ user: req.user._id })
- .populate('items.product', 'name slug variants images')
- .populate('items.accessory', 'name slug brand image models accessoryType')
+  .populate('items.product', 'name slug variants images')
+  .populate({
+      path: 'items.accessory',
+      select: 'name slug brand image models accessoryType',
+      populate: {
+        path: 'models.variants',
+        select: 'name price originalPrice images sku countInStock discount bulkPricing bulkBase'
+      }
+    })
 
   if (!wishlist) return res.json({ items: [] })
 
-  let items = wishlist.items.filter(item => 
-    (item.type === 'product' && item.product) || 
+  let items = wishlist.items.filter(item =>
+    (item.type === 'product' && item.product) ||
     (item.type === 'accessory' && item.accessory)
   )
 
   items = items.map(item => {
+
     if (item.type === 'product' && item.product) {
-      const p = item.product.toObject() // we already do this
+      const p = item.product.toObject()
       const vIdx = item.productVariantIndex?? 0
       const cIdx = item.productColorIndex?? 0
       const variant = p.variants?.[vIdx]
@@ -24,7 +32,6 @@ const getWishlist = asyncHandler(async (req, res) => {
 
       if (variant && color) {
         const { finalPrice, discountAmount, isActive } = calculateDiscount(color.price, color.discount)
-        // KEY FIX: Mutate 'p' not 'item.product'
         p.variants[vIdx].colors[cIdx] = {
        ...color,
           price: finalPrice,
@@ -33,54 +40,52 @@ const getWishlist = asyncHandler(async (req, res) => {
           discountAmount
         }
       }
-      item.product = p // KEY FIX: assign back the mutated object
+      item.product = p
     }
 
+    // KEY FIX: ACCESSORY LOGIC
     if (item.type === 'accessory' && item.accessory) {
-  const a = item.accessory.toObject() // we already do this
-  const mIdx = item.modelIndex?? 0
-  const vIdx = item.accessoryVariantIndex?? 0
-  const model = a.models?.[mIdx]
-  const variant = model?.variants?.[vIdx]
+      const a = item.accessory.toObject()
+      const mIdx = item.modelIndex?? 0
+      const vIdx = item.accessoryVariantIndex?? 0
+      const model = a.models?.[mIdx]
+      const variant = model?.variants?.[vIdx]
 
-  if (model && variant) {
-    const basePrice = variant.originalPrice || variant.price // KEY FIX
-    const { finalPrice, discountAmount, isActive } = calculateDiscount(basePrice, variant.discount)
-    // KEY FIX: Mutate 'a' not 'item.accessory'
-    a.models[mIdx].variants[vIdx] = {
-     ...variant,
-      price: finalPrice,
-      originalPrice: basePrice,
-      discount: {...variant.discount, isActive},
-      discountAmount
+      if (model && variant) {
+        const originalPrice = Number(variant.originalPrice) || 0
+        const dbPrice = Number(variant.price) || 0 // DB me ye already discounted hai
+
+        // Agar originalPrice set hai aur dbPrice usse kam hai to discount active hai
+        const isActive = originalPrice > 0 && dbPrice < originalPrice
+        const discountAmount = originalPrice - dbPrice
+        const savingsPercent = originalPrice > 0? Math.round((discountAmount / originalPrice) * 100) : 0
+
+        a.models[mIdx].variants[vIdx] = {
+       ...variant,
+          price: dbPrice, // sale price
+          originalPrice: originalPrice, // MRP
+          discount: {...variant.discount, isActive, value: savingsPercent},
+          discountAmount
+        }
+      }
+      item.accessory = a
     }
-  }
-  item.accessory = a // KEY FIX: assign back the mutated object
-}
     return item
   })
 
   res.json({...wishlist.toObject(), items })
 })
 
- 
-
-// @desc    Toggle wishlist item - add if not exist, remove if exist
-// @route   POST /api/wishlist/toggle
-// @access  Private
+// @desc Toggle wishlist item
 const toggleWishlist = asyncHandler(async (req, res) => {
-  const { 
-    type, 
-    productId, 
-    accessoryId, 
-    modelIndex = 0, 
-    accessoryVariantIndex = 0, // renamed
-    productVariantIndex = 0,   // new
-    productColorIndex = 0      // new
+  const {
+    type, productId, accessoryId,
+    modelIndex = 0, accessoryVariantIndex = 0,
+    productVariantIndex = 0, productColorIndex = 0
   } = req.body
   const userId = req.user._id
 
-  if (!type || (type === 'product' && !productId) || (type === 'accessory' && !accessoryId)) {
+  if (!type || (type === 'product' &&!productId) || (type === 'accessory' &&!accessoryId)) {
     res.status(400)
     throw new Error('Invalid request body')
   }
@@ -90,18 +95,17 @@ const toggleWishlist = asyncHandler(async (req, res) => {
     wishlist = await Wishlist.create({ user: userId, items: [] })
   }
 
-  // Find if EXACT same variant already exists
   const existingIndex = wishlist.items.findIndex(item => {
     if (type === 'product') {
-      return item.type === 'product' && 
+      return item.type === 'product' &&
              item.product?.toString() === productId &&
              item.productVariantIndex === productVariantIndex &&
              item.productColorIndex === productColorIndex
     }
     if (type === 'accessory') {
-      return item.type === 'accessory' && 
-             item.accessory?.toString() === accessoryId && 
-             item.modelIndex === modelIndex && 
+      return item.type === 'accessory' &&
+             item.accessory?.toString() === accessoryId &&
+             item.modelIndex === modelIndex &&
              item.accessoryVariantIndex === accessoryVariantIndex
     }
     return false
@@ -109,32 +113,62 @@ const toggleWishlist = asyncHandler(async (req, res) => {
 
   let action = ''
   if (existingIndex > -1) {
-    // Remove
     wishlist.items.splice(existingIndex, 1)
     action = 'removed'
   } else {
-    // Add new variant
     wishlist.items.push({
       type,
-      product: type === 'product' ? productId : undefined,
-      accessory: type === 'accessory' ? accessoryId : undefined,
-      productVariantIndex,
-      productColorIndex,
-      modelIndex,
-      accessoryVariantIndex
+      product: type === 'product'? productId : undefined,
+      accessory: type === 'accessory'? accessoryId : undefined,
+      productVariantIndex, productColorIndex, modelIndex, accessoryVariantIndex
     })
     action = 'added'
   }
 
   await wishlist.save()
-  
+
   const populated = await wishlist.populate([
     { path: 'items.product', select: 'name slug variants images' },
-    { path: 'items.accessory', select: 'name slug brand image models accessoryType' }
+    {
+      path: 'items.accessory',
+      select: 'name slug brand image models accessoryType',
+      populate: {
+        path: 'models.variants',
+        select: 'name price originalPrice images sku countInStock discount bulkPricing bulkBase'
+      }
+    }
   ])
 
-  res.json({ message: `Item ${action}`, wishlist: populated })
+  // KEY FIX: toggle ke baad bhi same logic chahiye
+  let items = populated.items.map(item => {
+    if (item.type === 'accessory' && item.accessory) {
+      const a = item.accessory.toObject()
+      const mIdx = item.modelIndex?? 0
+      const vIdx = item.accessoryVariantIndex?? 0
+      const model = a.models?.[mIdx]
+      const variant = model?.variants?.[vIdx]
+      if (model && variant) {
+        const originalPrice = Number(variant.originalPrice) || 0
+        const dbPrice = Number(variant.price) || 0
+        const isActive = originalPrice > 0 && dbPrice < originalPrice
+        const discountAmount = originalPrice - dbPrice
+        const savingsPercent = originalPrice > 0? Math.round((discountAmount / originalPrice) * 100) : 0
+        a.models[mIdx].variants[vIdx] = {
+       ...variant,
+          price: dbPrice,
+          originalPrice: originalPrice,
+          discount: {...variant.discount, isActive, value: savingsPercent},
+          discountAmount
+        }
+      }
+      item.accessory = a
+    }
+    return item
+  })
+
+  res.json({ message: `Item ${action}`, wishlist: {...populated.toObject(), items } })
 })
+
 
 // @desc    Remove item from wishlist by item._id
 // @route   DELETE /api/wishlist/:itemId
