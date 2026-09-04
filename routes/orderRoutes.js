@@ -50,6 +50,7 @@ router.post('/', protect, asyncHandler(async (req, res) => {
   const dbOrderItems = validOrderItems.map((itemFromClient) => ({
     name: itemFromClient.name,
     qty: itemFromClient.qty,
+    tier: itemFromClient.tier || itemFromClient.qty || 1,
     image: itemFromClient.image,
     price: Number(itemFromClient.price),
     originalPrice: Number(itemFromClient.originalPrice),
@@ -193,10 +194,11 @@ router.get('/myorders', protect, async (req, res) => {
     orderItems: order.orderItems.map(item => {
       const populatedData = item.product || item.accessory || {}
       return {
-        ...item,
+        ...item.toObject(),
         name: populatedData.name || item.name, // fallback to saved name
         image: populatedData.image || item.image,
         price: populatedData.price || item.price,
+        tier: Number(item.tier) || 1,
       }
     })
   }))
@@ -226,10 +228,11 @@ router.get('/all', protect, admin, asyncHandler(async (req, res) => {
     orderItems: order.orderItems.map(item => {
       const populatedData = item.product || item.accessory || {}
       return {
-        ...item,
+        ...item.toObject(),
         name: populatedData.name || item.name,
         image: populatedData.image || item.image,
         price: populatedData.price || item.price,
+        tier: Number(item.tier) || 1,
       }
     })
   }))
@@ -274,6 +277,7 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
           // FORCE NUMBERS
           price,
           qty,
+          tier: Number(item.tier) || 1,
           originalPrice,
           discountAmount,
         }
@@ -650,10 +654,11 @@ if (cancelCode && cancelCode !== 'ALL') {
     orderItems: order.orderItems.map(item => {
       const populatedData = item.product || item.accessory || {}
       return {
-        ...item,
+        ...item.toObject(),
         name: populatedData.name || item.name,
         image: populatedData.image || item.image,
         price: populatedData.price || item.price,
+        tier: Number(item.tier) || 1,
       }
     })
   }))
@@ -924,6 +929,7 @@ router.post('/create-checkout-session', protect, asyncHandler(async (req, res) =
     return {
       name: matchingItemFromDB.name,
       qty: itemFromClient.qty,
+      tier: itemFromClient.tier || itemFromClient.qty || 1,
       image: image,
       price: price,
       originalPrice: Number(itemFromClient.originalPrice),

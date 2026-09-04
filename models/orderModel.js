@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const orderItemSchema = mongoose.Schema({
   name: { type: String, required: true },
   qty: { type: Number, required: true },
+  tier: { type: Number, default: 1 },
   image: { type: String, required: true },
   price: { type: Number, required: true },
   originalPrice: { type: Number },
