@@ -3,7 +3,7 @@ const User = require('../models/User')
 const asyncHandler = require('express-async-handler')
 
 const protect = asyncHandler(async (req, res, next) => {
-  let token = req.cookies.jwt
+  let token = req.cookies.jwt || req.headers.authorization?.split(' ')[1]
 
   if (token) {
     try {

@@ -16,6 +16,7 @@ const contactRoutes = require('./routes/contactRoutes.js');
 const uploadRoutes = require('./routes/uploadRoutes.js');
 const sitemapRoutes = require('./routes/sitemapRoutes.js' )
 const accessoryRoutes = require('./routes/accessoryRoutes.js');
+const blogRoutes = require('./routes/blogRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes')
 const Stripe = require('stripe');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
@@ -336,6 +337,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/accessories', accessoryRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/blogs', blogRoutes);
 
 app.use('/api/orders', orderRoutes);
 app.use('/api/contact', contactRoutes)
@@ -378,18 +380,7 @@ app.use((err, req, res, next) => {
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
   res.status(statusCode).json({ message: err.message })
 })
-// Catch multer + cloudinary errors
-// app.use((err, req, res, next) => {
-//   console.error('UPLOAD ERROR:', err)
-//   if (err) {
-//     return res.status(400).json({ message: err.message })
-//   }
-//   next(err)
-// })
-// app.use((err, req, res, next) => {
-//   console.error('ERROR STACK:', err.stack)  // <-- this line is critical
-//   res.status(500).json({ message: err.message })
-// })
+ 
 
  
 
