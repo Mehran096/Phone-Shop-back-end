@@ -5,6 +5,8 @@ const cors = require('cors');
 const connectDB = require('./config/db'); // we’ll make this
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const cookieParser = require('cookie-parser');
+const cron = require('node-cron');
+const { generateAutoBlog } = require('./utils/autoBlogAgent');
 //const jazzcashRoutes = require('./routes/jazzcashRoutes.js');
 const multer = require('multer') 
 const compression = require('compression')
@@ -388,3 +390,17 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Run every day at 10:00 AM Pakistan time (Asia/Karachi = UTC+5)
+// 10 AM PKT = 5 AM UTC
+cron.schedule("0 5 * * *", async () => {
+  console.log("⏰ Cron triggered: Daily auto blog");
+  try {
+    await generateAutoBlog();
+  } catch (e) {
+    console.error("Cron error:", e.message);
+  }
+}, {
+  timezone: "UTC"
+});
+console.log("✅ Auto-blog cron scheduled: Daily 10 AM PKT (5 AM UTC)");
