@@ -15,7 +15,8 @@ router.post('/cron/auto-blog', async (req, res) => {
     }
 
     console.log("⏰ External Cron triggered via API");
-    const blog = await generateAutoBlog(req.body.topic || "");
+    const customTopic = req.body?.topic || ""; // FIXED: added ?. to prevent crash
+    const blog = await generateAutoBlog(customTopic);
 
     if (!blog) {
       return res.status(500).json({ message: "Blog generation failed" });
