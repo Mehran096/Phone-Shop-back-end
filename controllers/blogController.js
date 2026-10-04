@@ -54,6 +54,13 @@ const getAllBlogsAdmin = asyncHandler(async (req, res) => {
 });
 
 const createBlog = asyncHandler(async (req, res) => {
+  //admin check for demo account -start
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com';
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' });
+  }
+//admin check for demo account -end
+
   const { title, excerpt, content, coverImage, category, tags, metaTitle, metaDescription, slug: incomingSlug, aiGenerated, aiModel, featured } = req.body;
   
   if (!title || !excerpt || !content) {
@@ -97,6 +104,13 @@ const createBlog = asyncHandler(async (req, res) => {
 });
 
 const updateBlog = asyncHandler(async (req, res) => {
+  //admin check for demo account -start
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com';
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' });
+  }
+//admin check for demo account -end
+
   const blog = await Blog.findById(req.params.id);
   if (!blog) {
     res.status(404);
@@ -120,6 +134,14 @@ const updateBlog = asyncHandler(async (req, res) => {
 });
 
 const deleteBlog = asyncHandler(async (req, res) => {
+
+  //admin check for demo account -start
+  const isDemoAdmin = req.user.email === 'demo@phonestore.com';
+  if (isDemoAdmin) {
+    return res.status(403).json({ message: 'Demo accounts have read-only access.' });
+  }
+//admin check for demo account -end
+
   const blog = await Blog.findById(req.params.id);
   if (!blog) {
     res.status(404);
